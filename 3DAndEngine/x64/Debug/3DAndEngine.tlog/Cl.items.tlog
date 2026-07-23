@@ -1,0 +1,13 @@
+D:\3DAndEngine\plugins\sample_plugin\sample_plugin.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\sample_plugin.obj
+D:\3DAndEngine\src\core\Application.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\Application.obj
+D:\3DAndEngine\src\core\ConfigService.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\ConfigService.obj
+D:\3DAndEngine\src\core\EventBus.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\EventBus.obj
+D:\3DAndEngine\src\core\LoggerService.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\LoggerService.obj
+D:\3DAndEngine\src\core\PluginLoader.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\PluginLoader.obj
+D:\3DAndEngine\src\core\SemVer.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\SemVer.obj
+D:\3DAndEngine\src\core\ServiceManager.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\ServiceManager.obj
+D:\3DAndEngine\src\core\TaskScheduler.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\TaskScheduler.obj
+D:\3DAndEngine\src\main.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\main.obj
+D:\3DAndEngine\tests\test_semver.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\test_semver.obj
+D:\3DAndEngine\tests\test_servicemanager.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\test_servicemanager.obj
+D:\3DAndEngine\tests\unit_tests.cpp;D:\3DAndEngine\3DAndEngine\x64\Debug\unit_tests.obj
