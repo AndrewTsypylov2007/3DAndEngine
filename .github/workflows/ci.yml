@@ -28,7 +28,7 @@ jobs:
       shell: bash
       run: |
         if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-          git clone https://github.com/microsoft/vcpkg.git vcpkg
+          git clone https://github.com vcpkg
         fi
 
     - name: Bootstrap vcpkg (Linux/macOS)
@@ -66,11 +66,11 @@ jobs:
       shell: bash
       run: |
         if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          ./vcpkg/vcpkg install --manifest --triplet x64-linux
+          ./vcpkg/vcpkg install --triplet x64-linux
         elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./vcpkg/vcpkg install --manifest --triplet x64-windows
+          ./vcpkg/vcpkg install --triplet x64-windows
         else
-          ./vcpkg/vcpkg install --manifest --triplet x64-osx
+          ./vcpkg/vcpkg install --triplet x64-osx
         fi
 
     - name: Configure CMake Target
@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-            git clone https://github.com/microsoft/vcpkg.git vcpkg
+            git clone https://github.com vcpkg
           fi
 
       - name: Bootstrap vcpkg (Linux/macOS)
@@ -128,11 +128,11 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            ./vcpkg/vcpkg install --manifest --triplet x64-linux
+            ./vcpkg/vcpkg install --triplet x64-linux
           elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            ./vcpkg/vcpkg install --manifest --triplet x64-windows
+            ./vcpkg/vcpkg install --triplet x64-windows
           else
-            ./vcpkg/vcpkg install --manifest --triplet x64-osx
+            ./vcpkg/vcpkg install --triplet x64-osx
           fi
 
       - name: Configure (Release)
