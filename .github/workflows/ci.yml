@@ -81,11 +81,26 @@ jobs:
       - name: Package artifacts
         shell: bash
         run: |
-          mkdir -p dist
-          cmake --install build --prefix dist
+          # 1. Создаем чистую структуру папок дистрибутива
+          mkdir -p dist/bin
+          mkdir -p dist/include/core
+          mkdir -p dist/lib
+          
+          # 2. ПРЯМОЙ КОПИРАЙТ: Ищем бинарники по всей глубине папки build и принудительно копируем в bin/
+          find build -type f \( -name "3DAndEngine" -o -name "3DAndEngine.exe" -o -name "*.dll" -o -name "*.so" -o -name "*.dylib" \) -exec cp {} dist/bin/ \; 2>/dev/null || true
+          
+          # 3. Копируем файлы импорта (.lib) для линковки на Windows
+          find build -type f -name "*.lib" -exec cp {} dist/lib/ \; 2>/dev/null || true
+          
+          # 4. Копируем все заголовочные файлы из include/core/
+          cp -r include/core/* dist/include/core/ 2>/dev/null || true
+          
+          # 5. Копируем файл конфигурации, чтобы движок работал "из коробки"
           if [ -f "config.json" ]; then
-            cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
+            cp config.json dist/bin/ 2>/dev/null || true
           fi
+          
+          # 6. Упаковываем встроенным архиватором CMake
           cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
 
 
