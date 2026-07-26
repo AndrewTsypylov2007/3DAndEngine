@@ -22,7 +22,7 @@ namespace core {
 					logger_ = spdlog::stdout_color_mt("core");
 					spdlog::set_pattern("[%H:%M:%S] [%^%l%$] %v");
 				}
-				catch (const const spdlog::spdlog_ex& e) {
+				catch (const spdlog::spdlog_ex& e) {
 					std::cerr << "[LoggerService] Failed to initialize spdlog: " << e.what() << "\n";
 					return;
 				}

@@ -14,6 +14,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 
 # 2. Явный список исходных файлов ядра движка (без main.cpp)
 set(CORE_LIBRARY_SRC
+    src/core/Application.cpp
     src/core/ConfigService.cpp
     src/core/EventBus.cpp
     src/core/LoggerService.cpp
