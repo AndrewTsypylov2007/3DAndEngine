@@ -2,14 +2,14 @@ Package: vcpkg-cmake-config
 Version: 2024-05-23
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 87a1d35b793401fa55722beaf3be5c5715db5852fdc95710c67e0d13027afede
+Abi: 66d425de5f3d1897d2137be782d38067a6d0552aacb89da48e0883fa2e875894
 Status: install ok installed
 
 Package: vcpkg-cmake
 Version: 2024-04-23
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 5e3801af10ae9816e3bfe731adabc0371c3d3fbf0c38164f872b2334eab7e0a4
+Abi: e02cbd516ad2c2a75db8e4cd73b22dc45f54d969cac2c13717977318a66a366e
 Status: install ok installed
 
 Package: asio
@@ -19,7 +19,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: e5b0d00e525789d37d3cc6f584dd7ead1034df946fc4c2688e2461e3c415abaa
 Description: Asio is a cross-platform C++ library for network and low-level I/O programming that provides developers with a consistent asynchronous model using a modern C++ approach.
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: zlib
 Version: 1.3.2
@@ -29,7 +29,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: adca1be1c14e8acc55bc6112953ec2c1cf56fc25175646043f00de8a0492f3f4
 Description: A compression library
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: utfcpp
 Version: 4.1.1
@@ -38,7 +38,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: e65d6efd92ab6f0dc28e738cd80bf216cc286399808d30435de165a698925b4a
 Description: UTF-8 with C++ in a Portable Way
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: stb
 Version: 2024-07-29
@@ -47,7 +47,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: a9d8504c4e7b04a3f773c365871fc81e4ea47c6b3d291fed8c47240e3a7a1930
 Description: public domain header-only libraries
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: rapidjson
 Version: 2025-02-26
@@ -56,7 +56,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 80c5c5bb7aec66b81a268d7d34723dc0c01dcbbca167d786753ba3c16498fec9
 Description: A fast JSON parser/generator for C++ with both SAX/DOM style API <http://rapidjson.org/>
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: pugixml
 Version: 1.16
@@ -65,7 +65,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: e8d4e7835dc8d6511900340fa67ef4e44d82a8b62e764a8d3ac12832dab427b9
 Description: Light-weight, simple and fast XML parser for C++ with XPath support
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: polyclipping
 Version: 6.4.2
@@ -75,7 +75,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: f179509d75ead4ef8a5c61bd2fba91a3012ffd74a3b1bd371af2a0ee07eb9775
 Description: The Clipper library performs clipping and offsetting for both lines and polygons. All four boolean clipping operations are supported - intersection, union, difference and exclusive-or. Polygons can be of any shape including self-intersecting polygons.
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: vcpkg-cmake-get-vars
 Version: 2025-05-29
@@ -83,7 +83,7 @@ Depends: vcpkg-cmake
 Architecture: x64-windows
 Multi-Arch: same
 Abi: 5f61540fa365fefbf78a346d01d735949ba9603a933f4efbc89145a3871443d7
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: minizip
 Version: 1.3.2
@@ -92,7 +92,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: eaff2d572afb9a0170f38107ecd098c7eadac84fed8565d89b45175746af90a3
 Description: Minizip zip file manipulation library
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: kubazip
 Version: 0.3.14
@@ -101,7 +101,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: ff8af386eeb93964da0c4c6c5ccad8c45e8bb6a8d08811b5573ac8a54c310816
 Description: A portable, simple zip library written in C
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: jhasse-poly2tri
 Version: 2023-12-27
@@ -111,7 +111,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 97793680265956ff6ac2692c63e63587d0177290a1eb8a9e564d11628f11d30f
 Description: Sweep-line algorithm for constrained Delaunay triangulation
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: assimp
 Version: 6.0.4
@@ -121,7 +121,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 4a5f8885c4e116b8fa38eaa9a4ac53cd9dc987fbc1c237d61b10f61b1a463276
 Description: The Open Asset import library
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: bullet3
 Version: 3.25
@@ -131,7 +131,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 0cb93e38849e0231206cbcce6ad0ee85bac4bde081b0ba480dec24f42459d843
 Description: Bullet Physics is a professional collision detection, rigid body, and soft body dynamics library
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: entt
 Version: 3.16.0
@@ -140,14 +140,14 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 7fc040729f7c81afb7ce31e5569d65b88c70fdc9adc0fcc9e3d1e2d5af20f6a8
 Description: Gaming meets modern C++ - a fast and reliable entity-component system and much more
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: fmt
 Version: 12.2.0
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 22afdbd53d08e730a90ca11ee54d1065b2ec13846ef42164f710718c5aa01188
+Abi: e988f678f00e234164cfb56ddcc7b5fa0033a80e0dd9e72f350d7ce327acb7ad
 Description: {fmt} is an open-source formatting library providing a fast and safe alternative to C stdio and C++ iostreams.
 Status: install ok installed
 
@@ -157,7 +157,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 71202f509bb504ed85415a087018bdeb55ef8d569c7a3266f235029b5890a7d7
 Description: EGL API and Extension Registry
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: opengl-registry
 Version: 2026-01-26
@@ -166,7 +166,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 802c08d11fa664cebfba41e2c39462c558e95ca4f45de7b7656f8d511b9108b4
 Description: OpenGL, OpenGL ES, and OpenGL ES-SC API and Extension Registry
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: glad
 Version: 0.1.36
@@ -176,14 +176,14 @@ Multi-Arch: same
 Abi: 9baa2f679f84f40059ab43c8ef15f91e226e90a09d071973b141b0170426b4a7
 Description: Multi-Language Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official specs.
 Default-Features: loader
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: glad
 Feature: loader
 Architecture: x64-windows
 Multi-Arch: same
 Description: Generate loader logic.
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: glfw3
 Version: 3.4
@@ -193,7 +193,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 8f0e3ce2bed808585321356e59c365e7f733eeaedc59c84d330d964265a3ef01
 Description: GLFW is a free, Open Source, multi-platform library for OpenGL, OpenGL ES and Vulkan application development. It provides a simple, platform-independent API for creating windows, contexts and surfaces, reading input, handling events, etc.
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: glm
 Version: 1.0.3
@@ -202,7 +202,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 66cd2323ca6423a322da99bec77b38e397f4d4defa6d9bb1eed4c3b36a704f86
 Description: OpenGL Mathematics (GLM)
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: imgui
 Version: 1.92.8
@@ -212,7 +212,7 @@ Architecture: x64-windows
 Multi-Arch: same
 Abi: 25a45e45030acfb9acd85df5324968e2abe563c55739254a36c6df8df2ba44a7
 Description: Bloat-free Immediate Mode Graphical User interface for C++ with minimal dependencies.
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: imgui
 Feature: glfw-binding
@@ -220,14 +220,14 @@ Depends: glfw3
 Architecture: x64-windows
 Multi-Arch: same
 Description: Make available GLFW binding
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: imgui
 Feature: opengl3-binding
 Architecture: x64-windows
 Multi-Arch: same
 Description: Make available OpenGL3/ES/ES2 (modern) binding
-Status: install ok installed
+Status: purge ok not-installed
 
 Package: nlohmann-json
 Version: 3.12.0
@@ -235,7 +235,7 @@ Port-Version: 2
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: 081a97bada09b3991b3f8ed331f1a82b8ef583b3a36e08488d99d207b7c83129
+Abi: 914762325940799912315715b7e5ab8614f21928074d037e0f335b1aed5d9c57
 Description: JSON for Modern C++
 Status: install ok installed
 
@@ -245,7 +245,7 @@ Port-Version: 1
 Depends: vcpkg-cmake, vcpkg-cmake-config
 Architecture: x64-windows
 Multi-Arch: same
-Abi: edbdaa83fce7084db87da7aa87de6f569966bb22a738e0e46c05c5784817d3c7
+Abi: f4a0819d44e137a06f51c9708c7d1dc91d4e566c8bf7c2ed43d2d451ce7f826c
 Description: Very fast, header-only/compiled, C++ logging library.
 Default-Features: fmt, tz-offset
 Status: install ok installed
