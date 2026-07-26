@@ -8,6 +8,9 @@ on:
   release:
     types: [published]
 
+env:
+  VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -28,7 +31,7 @@ jobs:
       shell: bash
       run: |
         if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-          git clone git://github.com/microsoft/vcpkg.git vcpkg || git clone https://github.com/microsoft/vcpkg vcpkg
+          git clone git://://github.com vcpkg || git clone https://github.com vcpkg
         fi
 
     - name: Bootstrap vcpkg (Linux/macOS)
@@ -73,6 +76,13 @@ jobs:
           ./vcpkg/vcpkg install --triplet x64-osx
         fi
 
+    - name: Reposvcpkg integration (Cache Auth)
+      uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
     - name: Configure CMake Target
       run: |
         cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -111,7 +121,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-            git clone https://github.com vcpkg
+            git clone git://://github.com vcpkg || git clone https://github.com vcpkg
           fi
 
       - name: Bootstrap vcpkg (Linux/macOS)
@@ -135,6 +145,13 @@ jobs:
             ./vcpkg/vcpkg install --triplet x64-osx
           fi
 
+      - name: Reposvcpkg integration (Cache Auth)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
       - name: Configure (Release)
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
@@ -146,7 +163,10 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          find build -type f \( -name "3DAndEngine" -o -name "3DAndEngine.exe" -o -name "*.dll" -o -name "*.so" -o -name "*.dylib" \) -exec cp {} dist/ \; 2>/dev/null || true
+          cmake --install build --prefix dist
+          if [ -f "config.json" ]; then
+            cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
+          fi
           cd dist && zip -r ../release-artifacts-${{ matrix.os }}.zip .
 
       - name: Upload Release Asset
