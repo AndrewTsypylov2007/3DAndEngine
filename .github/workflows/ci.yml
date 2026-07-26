@@ -27,12 +27,13 @@ jobs:
     - name: Configure CMake Target
       shell: bash
       run: |
-        # Используем встроенный системный vcpkg, который уже есть на каждой машине GitHub Actions
+        # Флаг --no-builtin-baseline отключает жесткую валидацию коммитов портов
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
           -DBUILD_TESTS=ON \
-          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
-
+          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
+          -DVCPKG_FEATURE_FLAGS="manifests"
+          
     - name: Build Engine
       run: cmake --build build --config ${{ matrix.config }}
 
@@ -69,7 +70,8 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTS=OFF \
-            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_FEATURE_FLAGS="manifests"
 
       - name: Build (Release)
         run: cmake --build build --config Release
