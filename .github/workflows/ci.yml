@@ -8,6 +8,10 @@ on:
   release:
     types: [published]
 
+# Глобальные переменные для совместимости со старыми экшенами в новой среде Node.js
+env:
+  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -19,10 +23,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake
-      uses: lukka/get-cmake@latest
-      with:
-        cmake-version: '3.25.0'
+    # Шаг с lukka/get-cmake удален, так как CMake актуальной версии уже предустановлен на всех раннерах
+
+     Pentesting/Проверка версии CMake перед конфигурацией
+    - name: Verify CMake Version
+      run: cmake --version
 
     - name: Configure CMake Target
       shell: bash
@@ -44,6 +49,7 @@ jobs:
         path: |
           build/**/3DAndEngine*
           build/**/unit_tests*
+          build/**/*.dll
 
     - name: Run unit tests
       run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
@@ -60,11 +66,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure CMake
-        uses: lukka/get-cmake@latest
-        with:
-          cmake-version: '3.25.0'
-
       - name: Configure (Release)
         shell: bash
         run: |
@@ -78,44 +79,27 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Package artifacts
-        shell: pwsh
+        shell: bash
         run: |
-          # 1. Создаем чистую структуру папок дистрибутива SDK
-          New-Item -ItemType Directory -Force -Path "dist/bin"
-          New-Item -ItemType Directory -Force -Path "dist/include/core"
-          New-Item -ItemType Directory -Force -Path "dist/lib"
+          # Создаем изолированную директорию сборки артефактов
+          cmake -E make_directory dist
           
-          # 2. ТОТАЛЬНЫЙ ПОИСК БИНАРНИКОВ ПО ВСЕМУ КАТАЛОГУ (РЕНТГЕН):
-          # Сканируем весь рабочий каталог проекта, игнорируя папку dist, чтобы избежать зацикливания.
+          # Устанавливаем скомпилированные бинарники проекта
+          cmake --install build --prefix dist
           
-          # Ищем исполняемый файл движка по имени (найдет и 3DAndEngine.exe на Windows, и 3DAndEngine на Linux/Mac)
-          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.BaseName -eq "3DAndEngine" } | Copy-Item -Destination "dist/bin/" -Force
+          # На Windows принудительно докидываем все внешние DLL из папки сборки в dist/bin
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            echo "Moving Windows Runtime DLLs into release pack..."
+            cp build/Release/*.dll dist/bin/ 2>/dev/null || true
+          fi
           
-          # Ищем саму динамическую библиотеку ядра движка (пропуская файлы импорта .lib)
-          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.Name -like "*engine_core_lib*" -and $_.Extension -ne ".lib" } | Copy-Item -Destination "dist/bin/" -Force
+          # Копируем config.json, если он есть в корне проекта
+          if [ -f "config.json" ]; then
+            cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
+          fi
           
-          # Забираем сторонние DLL (spdlog, fmt) и Unix-библиотеки (.so, .dylib), которые vcpkg скопировал в папки сборки
-          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and ($_.Name -eq "spdlog.dll" -or $_.Name -eq "fmt.dll" -or $_.Extension -in '.so', '.dylib') } | Copy-Item -Destination "dist/bin/" -Force
-          
-          # Находим служебные файлы .lib для статической линковки плагинов на Windows и кладем их в папку lib
-          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.Extension -eq ".lib" } | Copy-Item -Destination "dist/lib/" -Force
-          
-          # 3. Чистим папку bin от случайных артефактов тестирования, если они туда просочились
-          Get-ChildItem -Path "dist/bin" -File | Where-Object { $_.Name -like "*unit_tests*" } | Remove-Item -Force
-          
-          # 4. Копируем заголовочные файлы инфраструктуры для разработки модулей
-          if (Test-Path "include/core") {
-              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
-          }
-          
-          # 5. Копируем файл настроек
-          if (Test-Path "config.json") {
-              Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
-          }
-          
-          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
-          Set-Location dist
-          cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
+          # Кроссплатформенная архивация через встроенный движок CMake
+          cmake -E tar cfv release-artifacts-${{ matrix.os }}.zip --format=zip dist/
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
