@@ -71,12 +71,13 @@ endif()
 # ==============================================================================
 include(CMakePackageConfigHelpers)
 
-# Каноничная и правильная команда инсталляции
+# КАНРНИЧЕСКИЙ ВАРИАНТ: Обе цели (и DLL, и EXE) являются RUNTIME объектами.
+# CMake сам разложит их в папку bin/ на Windows, Mac и Linux без ошибок синтаксиса.
 install(TARGETS engine_core_lib 3DAndEngine
     EXPORT 3DAndEngineTargets
-    RUNTIME DESTINATION bin         # Сюда улетят И 3DAndEngine.exe, И engine_core_lib.dll
-    LIBRARY DESTINATION lib         # Для Linux (.so) и macOS (.dylib)
-    ARCHIVE DESTINATION lib         # Сюда улетит файл импорта engine_core_lib.lib
+    RUNTIME DESTINATION bin
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION include)
