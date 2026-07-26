@@ -1,6 +1,7 @@
 {
   "name": "3d-and-engine-core",
   "version-string": "0.1.0",
+  "builtin-baseline": "224976722d32fb1cf6edaf6688e170fc784fa721",
   "dependencies": [
     "fmt",
     "spdlog",
