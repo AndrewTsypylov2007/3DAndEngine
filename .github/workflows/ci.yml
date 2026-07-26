@@ -8,10 +8,6 @@ on:
   release:
     types: [published]
 
-# Глобальные переменные для совместимости со старыми экшенами в новой среде Node.js
-env:
-  ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: "true"
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -23,11 +19,10 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Шаг с lukka/get-cmake удален, так как CMake актуальной версии уже предустановлен на всех раннерах
-
-     Pentesting/Проверка версии CMake перед конфигурацией
-    - name: Verify CMake Version
-      run: cmake --version
+    - name: Configure CMake
+      uses: lukka/get-cmake@latest
+      with:
+        cmakeVersion: '3.25.0'        # <-- ИСПРАВЛЕНО: Новый регистр букв в параметре
 
     - name: Configure CMake Target
       shell: bash
@@ -47,9 +42,10 @@ jobs:
       with:
         name: build-artifacts-${{ matrix.os }}-${{ matrix.config }}
         path: |
+          build/**/bin/Debug/*
+          build/**/bin/*
           build/**/3DAndEngine*
           build/**/unit_tests*
-          build/**/*.dll
 
     - name: Run unit tests
       run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
@@ -66,6 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure CMake
+        uses: lukka/get-cmake@latest
+        with:
+          cmakeVersion: '3.25.0'        # <-- ИСПРАВЛЕНО: Новый регистр букв в параметре
+
       - name: Configure (Release)
         shell: bash
         run: |
@@ -79,27 +80,43 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Package artifacts
-        shell: bash
+        shell: pwsh
         run: |
-          # Создаем изолированную директорию сборки артефактов
-          cmake -E make_directory dist
+          # 1. Создаем структуру папок дистрибутива SDK
+          New-Item -ItemType Directory -Force -Path "dist/bin"
+          New-Item -ItemType Directory -Force -Path "dist/include/core"
+          New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # Устанавливаем скомпилированные бинарники проекта
-          cmake --install build --prefix dist
+          # 2. КОПИРОВАНИЕ ИЗ ЕДИНОЙ ПАПКИ ВЫВОДА:
+          if (Test-Path "build/bin/Release") {
+              Copy-Item -Path "build/bin/Release/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          } elseif (Test-Path "build/bin") {
+              Copy-Item -Path "build/bin/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          }
           
-          # На Windows принудительно докидываем все внешние DLL из папки сборки в dist/bin
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            echo "Moving Windows Runtime DLLs into release pack..."
-            cp build/Release/*.dll dist/bin/ 2>/dev/null || true
-          fi
+          # Копируем .lib файлы импорта из папки lib
+          if (Test-Path "build/lib/Release") {
+              Copy-Item -Path "build/lib/Release/*.lib" -Destination "dist/lib/" -Force -ErrorAction SilentlyContinue
+          } elseif (Test-Path "build/lib") {
+              Copy-Item -Path "build/lib/*.lib" -Destination "dist/lib/" -Force -ErrorAction SilentlyContinue
+          }
           
-          # Копируем config.json, если он есть в корне проекта
-          if [ -f "config.json" ]; then
-            cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
-          fi
+          # 3. Чистим мусор компиляции, оставляя только чистые исполняемые файлы и DLL
+          Get-ChildItem -Path "dist/bin" -File | Where-Object { $_.Extension -in '.obj', '.ilk', '.pdb', '.exp' } | Remove-Item -Force
           
-          # Кроссплатформенная архивация через встроенный движок CMake
-          cmake -E tar cfv release-artifacts-${{ matrix.os }}.zip --format=zip dist/
+          # 4. Копируем заголовочные файлы инфраструктуры для разработки модулей
+          if (Test-Path "include/core") {
+              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
+          }
+          
+          # 5. Копируем файл настроек
+          if (Test-Path "config.json") {
+              Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
+          }
+          
+          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
+          Set-Location dist
+          cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
