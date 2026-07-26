@@ -71,18 +71,15 @@ endif()
 # ==============================================================================
 include(CMakePackageConfigHelpers)
 
-# ИСПРАВЛЕННАЯ СТРОГАЯ ИНСТАЛЛЯЦИЯ:
-# Явно разделяем типы объектов, чтобы CMake на Windows не терял исполняемый файл
+# Каноничная и правильная команда инсталляции
 install(TARGETS engine_core_lib 3DAndEngine
     EXPORT 3DAndEngineTargets
-    RUNTIME DESTINATION bin         # Сюда улетит engine_core_lib.dll
-    EXECUTABLE DESTINATION bin      # ЖЕЛЕЗОБЕТОННО: Сюда улетит 3DAndEngine.exe
+    RUNTIME DESTINATION bin         # Сюда улетят И 3DAndEngine.exe, И engine_core_lib.dll
     LIBRARY DESTINATION lib         # Для Linux (.so) и macOS (.dylib)
     ARCHIVE DESTINATION lib         # Сюда улетит файл импорта engine_core_lib.lib
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION include)
-
 
 install(EXPORT 3DAndEngineTargets
     FILE 3DAndEngineTargets.cmake
