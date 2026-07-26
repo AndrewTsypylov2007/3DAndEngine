@@ -8,9 +8,6 @@ on:
   release:
     types: [published]
 
-env:
-  VCPKG_BINARY_SOURCES: 'clear;nuget,GitHub,readwrite'
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -22,43 +19,16 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake
+    - name: Configure CMake & Ninja
       uses: lukka/get-cmake@latest
       with:
         cmake-version: '3.25.0'
 
-    # ОФИЦИАЛЬНЫЙ ШАГ ОТ MICROSOFT: скачивает vcpkg и настраивает его без багов Git
+    # Проверенный экшен маркетплейса: разворачивает vcpkg без багов Git-авторизации
     - name: Setup vcpkg
-      uses: microsoft/vcpkg-action@v1
+      uses: lukka/run-vcpkg@v11
       with:
         vcpkgDirectory: ${{ github.workspace }}/vcpkg
-        doNotCache: false
-
-    - name: Cache CMake build
-      uses: actions/cache@v4
-      with:
-        path: build
-        key: ${{ runner.os }}-cmake-${{ matrix.config }}-${{ hashFiles('**/CMakeLists.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-cmake-${{ matrix.config }}-
-
-    - name: Install vcpkg dependencies
-      shell: bash
-      run: |
-        if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-          ./vcpkg/vcpkg install --triplet x64-linux
-        elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./vcpkg/vcpkg install --triplet x64-windows
-        else
-          ./vcpkg/vcpkg install --triplet x64-osx
-        fi
-
-    - name: Reposvcpkg integration (Cache Auth)
-      uses: actions/github-script@v7
-      with:
-        script: |
-          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
     - name: Configure CMake Target
       run: |
@@ -89,35 +59,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure CMake
+      - name: Configure CMake & Ninja
         uses: lukka/get-cmake@latest
         with:
           cmake-version: '3.25.0'
 
-      # Повторяем официальный шаг для релиза
+      # Разворачиваем vcpkg для релиза
       - name: Setup vcpkg
-        uses: microsoft/vcpkg-action@v1
+        uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: ${{ github.workspace }}/vcpkg
-          doNotCache: false
-
-      - name: Install vcpkg dependencies
-        shell: bash
-        run: |
-          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
-            ./vcpkg/vcpkg install --triplet x64-linux
-          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
-            ./vcpkg/vcpkg install --triplet x64-windows
-          else
-            ./vcpkg/vcpkg install --triplet x64-osx
-          fi
-
-      - name: Reposvcpkg integration (Cache Auth)
-        uses: actions/github-script@v7
-        with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
       - name: Configure (Release)
         run: |
