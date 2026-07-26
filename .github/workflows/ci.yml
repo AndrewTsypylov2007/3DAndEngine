@@ -18,10 +18,12 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+
     - name: Configure CMake
       uses: lukka/get-cmake@v3
       with:
         cmake-version: '3.25.0'
+
     - name: Clone vcpkg
       run: |
         if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
@@ -30,14 +32,14 @@ jobs:
 
     - name: Bootstrap vcpkg (Linux/macOS)
       if: runner.os != 'Windows'
-      run: |
-        ./vcpkg/bootstrap-vcpkg.sh
+      run: ./vcpkg/bootstrap-vcpkg.sh
 
     - name: Bootstrap vcpkg (Windows)
       if: runner.os == 'Windows'
       shell: pwsh
       run: |
         & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat"
+
 
     - name: Cache vcpkg packages
       uses: actions/cache@v4
@@ -51,104 +53,102 @@ jobs:
         key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
         restore-keys: |
           ${{ runner.os }}-vcpkg-
+
     - name: Cache CMake build
       uses: actions/cache@v4
       with:
-        path: |
-          build
+        path: build
         key: ${{ runner.os }}-cmake-${{ matrix.config }}-${{ hashFiles('**/CMakeLists.txt') }}
         restore-keys: |
           ${{ runner.os }}-cmake-${{ matrix.config }}-
-    - name: Setup MSVC (Windows)
-      if: runner.os == 'Windows'
-      uses: microsoft/setup-msbuild@v1
 
     - name: Install vcpkg dependencies
       run: |
         if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           ./vcpkg/vcpkg install --manifest --triplet x64-linux
-        elif [ "${{ matrix.os }}" = "windows-latest" ] || [ "${{ matrix.os }}" = "Windows" ]; then
+        elif [ "${{ matrix.os }}" = "windows-latest" ]; then
           ./vcpkg/vcpkg install --manifest --triplet x64-windows
         else
           ./vcpkg/vcpkg install --manifest --triplet x64-osx
         fi
 
-    - name: Configure
+    - name: Configure CMake Target
       run: |
         cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
-    - name: Build
-      run: cmake --build build --config ${{ matrix.config }} -- -m
+
+    - name: Build Engine
+      run: cmake --build build --config ${{ matrix.config }}
+
     - name: Upload build artifacts
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: build-artifacts-${{ matrix.os }}-${{ matrix.config }}
         path: |
-          build/**/engine_core*
+          build/**/3DAndEngine*
           build/**/unit_tests*
-          build/**/sample_plugin*
-    - name: Run tests
-      run: |
-        ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
-    - name: Upload test artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: test-logs-${{ matrix.os }}-${{ matrix.config }}
-        path: build/**/Testing/**/Test.xml
 
-  release:
-    name: Build and publish release artifacts
-    runs-on: ubuntu-latest
+    - name: Run unit tests
+      run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
+
+  release_build:
+    name: Build and upload release artifacts
+    runs-on: ${{ matrix.os }}
     if: github.event_name == 'release'
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+
       - name: Configure CMake
         uses: lukka/get-cmake@v3
         with:
           cmake-version: '3.25.0'
+
       - name: Clone vcpkg
         run: |
           if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
             git clone https://github.com/microsoft/vcpkg.git vcpkg
           fi
-      - name: Bootstrap vcpkg (Linux)
+
+      - name: Bootstrap vcpkg (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: ./vcpkg/bootstrap-vcpkg.sh
+
+      - name: Bootstrap vcpkg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
         run: |
-          ./vcpkg/bootstrap-vcpkg.sh
+          & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat"
+
       - name: Install vcpkg dependencies
         run: |
-          ./vcpkg/vcpkg install --manifest --triplet x64-linux
+          if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+            ./vcpkg/vcpkg install --manifest --triplet x64-linux
+          elif [ "${{ matrix.os }}" = "windows-latest" ]; then
+            ./vcpkg/vcpkg install --manifest --triplet x64-windows
+          else
+            ./vcpkg/vcpkg install --manifest --triplet x64-osx
+          fi
+
       - name: Configure (Release)
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+
       - name: Build (Release)
-        run: cmake --build build --config Release -- -m
+        run: cmake --build build --config Release
+
       - name: Package artifacts
+        shell: bash
         run: |
           mkdir -p dist
-          cp build/*/engine_core dist/ 2>/dev/null || true
-          cp build/*/unit_tests dist/ 2>/dev/null || true
-          # copy plugins
-          mkdir -p dist/plugins
-          cp -r plugins/* dist/plugins/ 2>/dev/null || true
-          cd dist && zip -r ../release-artifacts-${{ github.event.release.tag_name }}-linux.zip . || true
-      - name: Create GitHub Release
-        id: create_release
-        uses: actions/create-release@v1
+          find build -type f \( -name "3DAndEngine" -o -name "3DAndEngine.exe" -o -name "*.dll" -o -name "*.so" -o -name "*.dylib" \) -exec cp {} dist/ \; 2>/dev/null || true
+          cd dist && zip -r ../release-artifacts-${{ matrix.os }}.zip .
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ github.event.release.tag_name }}
-          release_name: ${{ github.event.release.name }}
-          body: ${{ github.event.release.body }}
-          draft: false
-          prerelease: false
-      - name: Upload release artifact
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./release-artifacts-${{ github.event.release.tag_name }}-linux.zip
-          asset_name: release-artifacts-${{ github.event.release.tag_name }}-linux.zip
-          asset_content_type: application/zip
+          files: release-artifacts-${{ matrix.os }}.zip

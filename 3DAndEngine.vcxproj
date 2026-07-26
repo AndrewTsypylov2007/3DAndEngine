@@ -143,28 +143,25 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <Text Include="CMakeLists.txt" />
-    <Text Include="plugins\sample_plugin\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\core\Application.h" />
     <ClInclude Include="include\core\ConfigService.h" />
     <ClInclude Include="include\core\EventBus.h" />
-    <ClInclude Include="include\core\IPlugin.h" />
     <ClInclude Include="include\core\IService.h" />
     <ClInclude Include="include\core\LoggerService.h" />
-    <ClInclude Include="include\core\PluginLoader.h" />
+    <ClInclude Include="include\core\LibraryLoader.h" />
     <ClInclude Include="include\core\SemVer.h" />
     <ClInclude Include="include\core\ServiceManager.h" />
     <ClInclude Include="include\core\TaskScheduler.h" />
     <ClInclude Include="tests\TestHarness.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="plugins\sample_plugin\sample_plugin.cpp" />
     <ClCompile Include="src\core\Application.cpp" />
     <ClCompile Include="src\core\ConfigService.cpp" />
     <ClCompile Include="src\core\EventBus.cpp" />
     <ClCompile Include="src\core\LoggerService.cpp" />
-    <ClCompile Include="src\core\PluginLoader.cpp" />
+    <ClCompile Include="src\core\LibraryLoader.cpp" />
     <ClCompile Include="src\core\SemVer.cpp" />
     <ClCompile Include="src\core\ServiceManager.cpp" />
     <ClCompile Include="src\core\TaskScheduler.cpp" />
@@ -176,8 +173,10 @@
   <ItemGroup>
     <None Include=".github\workflows\ci.yml" />
     <None Include=".gitignore" />
+    <None Include="cmake\Config.cmake.in" />
     <None Include="LICENSE" />
     <None Include="README.md" />
+    <None Include="RELEASE_NOTES.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

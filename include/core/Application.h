@@ -1,28 +1,30 @@
+// include/core/Application.h
 #pragma once
 
-#include "PluginLoader.h"
+#include "LibraryLoader.h"
 #include "ServiceManager.h"
 #include "EventBus.h"
+#include <memory>
 
 namespace core {
 
-class Application {
-public:
-	Application();
-	~Application();
+	class Application {
+	public:
+		Application();
+		~Application();
 
-	int run();
-	void stop();
+		int run();
+		void stop();
 
-	PluginLoader &pluginLoader() { return pluginLoader_; }
-	ServiceManager &services() { return services_; }
-	EventBus &eventBus() { return eventBus_; }
+		LibraryLoader& libraryLoader() { return libraryLoader_; }
+		ServiceManager& services() { return services_; }
+		std::shared_ptr<EventBus> eventBus() { return eventBus_; }
 
-private:
-	bool running_ = false;
-	PluginLoader pluginLoader_;
-	ServiceManager services_;
-	EventBus eventBus_;
-};
+	private:
+		bool running_ = false;
+		LibraryLoader libraryLoader_;
+		ServiceManager services_;
+		std::shared_ptr<EventBus> eventBus_;
+	};
 
 } // namespace core

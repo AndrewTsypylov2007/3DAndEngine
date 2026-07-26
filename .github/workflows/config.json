@@ -1,0 +1,10 @@
+{
+  "core": {
+    "enable_logger": true,
+    "enable_scheduler": true,
+    "enable_plugin_discovery": true
+  },
+  "plugin_paths": [
+    "plugins"
+  ]
+}
