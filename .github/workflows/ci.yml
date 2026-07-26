@@ -27,35 +27,12 @@ jobs:
       with:
         cmake-version: '3.25.0'
 
-    - name: Clone vcpkg
-      shell: bash
-      run: |
-        if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-          git -c credential.helper= clone https://github.com vcpkg
-        fi
-
-    - name: Bootstrap vcpkg (Linux/macOS)
-      if: runner.os != 'Windows'
-      shell: bash
-      run: ./vcpkg/bootstrap-vcpkg.sh
-
-    - name: Bootstrap vcpkg (Windows)
-      if: runner.os == 'Windows'
-      shell: bash
-      run: ./vcpkg/bootstrap-vcpkg.bat
-
-    - name: Cache vcpkg packages
-      uses: actions/cache@v4
+    # ОФИЦИАЛЬНЫЙ ШАГ ОТ MICROSOFT: скачивает vcpkg и настраивает его без багов Git
+    - name: Setup vcpkg
+      uses: microsoft/vcpkg-action@v1
       with:
-        path: |
-          ${{ github.workspace }}/vcpkg/packages
-          ${{ github.workspace }}/vcpkg/installed
-          ${{ github.workspace }}/vcpkg/archives
-          ${{ github.workspace }}/vcpkg/buildtrees
-          ${{ github.workspace }}/vcpkg/downloads
-        key: ${{ runner.os }}-vcpkg-${{ hashFiles('vcpkg.json') }}
-        restore-keys: |
-          ${{ runner.os }}-vcpkg-
+        vcpkgDirectory: ${{ github.workspace }}/vcpkg
+        doNotCache: false
 
     - name: Cache CMake build
       uses: actions/cache@v4
@@ -117,22 +94,12 @@ jobs:
         with:
           cmake-version: '3.25.0'
 
-      - name: Clone vcpkg
-        shell: bash
-        run: |
-          if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-            git -c credential.helper= clone https://github.com vcpkg
-          fi
-
-      - name: Bootstrap vcpkg (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: ./vcpkg/bootstrap-vcpkg.sh
-
-      - name: Bootstrap vcpkg (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        run: ./vcpkg/bootstrap-vcpkg.bat
+      # Повторяем официальный шаг для релиза
+      - name: Setup vcpkg
+        uses: microsoft/vcpkg-action@v1
+        with:
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
+          doNotCache: false
 
       - name: Install vcpkg dependencies
         shell: bash
