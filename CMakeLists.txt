@@ -26,6 +26,8 @@ set(CORE_LIBRARY_SRC
 # 3. Собираем ядро как динамическую библиотеку (SHARED DLL)
 add_library(engine_core_lib SHARED ${CORE_LIBRARY_SRC})
 
+set_target_properties(engine_core_lib PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+
 target_include_directories(engine_core_lib 
     PUBLIC 
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
