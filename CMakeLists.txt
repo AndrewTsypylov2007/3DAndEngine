@@ -66,18 +66,23 @@ if(BUILD_TESTS)
     add_test(NAME core_unit_tests COMMAND unit_tests)
 endif()
 
+# ==============================================================================
 # 6. Правила генерации SDK (Экспорт для внешних разработчиков)
+# ==============================================================================
 include(CMakePackageConfigHelpers)
 
-# КРИТИЧЕСКИЙ ФИКС: Явно указываем CMake упаковывать и DLL ядра, и сам .exe бинарник движка!
+# ИСПРАВЛЕННАЯ СТРОГАЯ ИНСТАЛЛЯЦИЯ:
+# Явно разделяем типы объектов, чтобы CMake на Windows не терял исполняемый файл
 install(TARGETS engine_core_lib 3DAndEngine
     EXPORT 3DAndEngineTargets
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin         # Сюда улетит engine_core_lib.dll
+    EXECUTABLE DESTINATION bin      # ЖЕЛЕЗОБЕТОННО: Сюда улетит 3DAndEngine.exe
+    LIBRARY DESTINATION lib         # Для Linux (.so) и macOS (.dylib)
+    ARCHIVE DESTINATION lib         # Сюда улетит файл импорта engine_core_lib.lib
 )
 
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION include)
+
 
 install(EXPORT 3DAndEngineTargets
     FILE 3DAndEngineTargets.cmake
