@@ -69,7 +69,8 @@ endif()
 # 6. Правила генерации SDK (Экспорт для внешних разработчиков)
 include(CMakePackageConfigHelpers)
 
-install(TARGETS engine_core_lib
+# КРИТИЧЕСКИЙ ФИКС: Явно указываем CMake упаковывать и DLL ядра, и сам .exe бинарник движка!
+install(TARGETS engine_core_lib 3DAndEngine
     EXPORT 3DAndEngineTargets
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
