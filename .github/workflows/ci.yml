@@ -86,7 +86,8 @@ jobs:
           if [ -f "config.json" ]; then
             cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
           fi
-          cd dist && zip -r ../release-artifacts-${{ matrix.os }}.zip .
+          cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
+
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
