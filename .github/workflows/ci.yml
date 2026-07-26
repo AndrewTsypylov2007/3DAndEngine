@@ -19,22 +19,19 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Configure CMake & Ninja
+    - name: Configure CMake
       uses: lukka/get-cmake@latest
       with:
         cmake-version: '3.25.0'
 
-    # Проверенный экшен маркетплейса: разворачивает vcpkg без багов Git-авторизации
-    - name: Setup vcpkg
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgDirectory: ${{ github.workspace }}/vcpkg
-        vcpkgGitCommitId: 224976722d32fb1cf6edaf6688e170fc784fa721 # <-- ДОБАВЛЕНО ТУТ
-
-
     - name: Configure CMake Target
+      shell: bash
       run: |
-        cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }} -DBUILD_TESTS=ON -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+        # Используем встроенный системный vcpkg, который уже есть на каждой машине GitHub Actions
+        cmake -S . -B build \
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+          -DBUILD_TESTS=ON \
+          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
 
     - name: Build Engine
       run: cmake --build build --config ${{ matrix.config }}
@@ -61,22 +58,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure CMake & Ninja
+      - name: Configure CMake
         uses: lukka/get-cmake@latest
         with:
           cmake-version: '3.25.0'
 
-      # Разворачиваем vcpkg для релиза
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-         vcpkgDirectory: ${{ github.workspace }}/vcpkg
-         vcpkgGitCommitId: 224976722d32fb1cf6edaf6688e170fc784fa721 # <-- ДОБАВЛЕНО ТУТ
-
-
       - name: Configure (Release)
+        shell: bash
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
+            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
 
       - name: Build (Release)
         run: cmake --build build --config Release
