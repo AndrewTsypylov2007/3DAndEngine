@@ -81,27 +81,36 @@ jobs:
       - name: Package artifacts
         shell: bash
         run: |
-          # 1. Создаем чистую структуру папок дистрибутива
+          # 1. Создаем структуру папок дистрибутива
           mkdir -p dist/bin
           mkdir -p dist/include/core
           mkdir -p dist/lib
           
-          # 2. ПРЯМОЙ КОПИРАЙТ: Ищем бинарники по всей глубине папки build и принудительно копируем в bin/
-          find build -type f \( -name "3DAndEngine" -o -name "3DAndEngine.exe" -o -name "*.dll" -o -name "*.so" -o -name "*.dylib" \) -exec cp {} dist/bin/ \; 2>/dev/null || true
+          # 2. КРОСС-ПЛАТФОРМЕННЫЙ КОПИРАЙТ: Переносим всё содержимое папки сборки напрямую
+          # На Windows бинарники лежат в build/Release, на Linux/Mac — прямо в build
+          if [ -d "build/Release" ]; then
+            cp -r build/Release/* dist/bin/ 2>/dev/null || true
+          else
+            cp build/3DAndEngine dist/bin/ 2>/dev/null || true
+            cp build/libengine_core_lib* dist/bin/ 2>/dev/null || true
+            cp build/*.so dist/bin/ 2>/dev/null || cp build/*.dylib dist/bin/ 2>/dev/null || true
+          fi
           
-          # 3. Копируем файлы импорта (.lib) для линковки на Windows
-          find build -type f -name "*.lib" -exec cp {} dist/lib/ \; 2>/dev/null || true
+          # 3. Чистим папку bin от временного мусора компиляции (.obj, .ilk), оставляя только .exe и .dll
+          cd dist/bin && rm -f *.obj *.ilk *.tlog *.pdb *.lastcodeanalysiststamps 2>/dev/null || true
+          cd ../..
           
-          # 4. Копируем все заголовочные файлы из include/core/
+          # 4. Копируем заголовочные файлы из include/core/
           cp -r include/core/* dist/include/core/ 2>/dev/null || true
           
-          # 5. Копируем файл конфигурации, чтобы движок работал "из коробки"
+          # 5. Копируем файл конфигурации
           if [ -f "config.json" ]; then
             cp config.json dist/bin/ 2>/dev/null || true
           fi
           
           # 6. Упаковываем встроенным архиватором CMake
           cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
+
 
 
       - name: Upload Release Asset
