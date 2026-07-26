@@ -81,28 +81,35 @@ jobs:
       - name: Package artifacts
         shell: bash
         run: |
-          # 1. Создаем папку для сборки дистрибутива
-          mkdir -p dist
+          # 1. Создаем структуру папок дистрибутива SDK
+          mkdir -p dist/bin
+          mkdir -p dist/include/core
+          mkdir -p dist/lib
           
-          # 2. ЖЕЛЕЗОБЕТОННЫЙ ФИКС: Явно говорим CMake забрать файлы из конфигурации Release
-          cmake --install build --prefix dist --config Release
-          
-          # 3. Копируем файл конфигурации, если он есть
-          if [ -f "config.json" ]; then
-            cp config.json dist/bin/ 2>/dev/null || cp config.json dist/ 2>/dev/null || true
+          # 2. ЖЕЛЕЗОБЕТОННО: Копируем бинарники напрямую из папок сборки Visual Studio
+          if [ -d "build/Release" ]; then
+            # На Windows всё лежит в build/Release
+            cp build/Release/*.exe dist/bin/ 2>/dev/null || true
+            cp build/Release/*.dll dist/bin/ 2>/dev/null || true
+            cp build/Release/*.lib dist/lib/ 2>/dev/null || true
+          else
+            # На Linux/Mac всё лежит прямо в корне папки build
+            cp build/3DAndEngine dist/bin/ 2>/dev/null || true
+            cp build/libengine_core_lib* dist/bin/ 2>/dev/null || true
+            cp build/*.so dist/bin/ 2>/dev/null || cp build/*.dylib dist/bin/ 2>/dev/null || true
           fi
           
-          # 4. Упаковываем содержимое папки dist кроссплатформенным архиватором CMake
-          cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
-     
+          # 3. Копируем заголовочные файлы инфраструктуры для разработчиков плагинов
+          cp -r include/core/* dist/include/core/ 2>/dev/null || true
           
-          # 5. Копируем файл конфигурации
+          # 4. Копируем файл конфигурации
           if [ -f "config.json" ]; then
             cp config.json dist/bin/ 2>/dev/null || true
           fi
           
-          # 6. Упаковываем встроенным архиватором CMake
+          # 5. Упаковываем всю структуру встроенным архиватором CMake
           cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
+
 
 
 
