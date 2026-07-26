@@ -79,37 +79,34 @@ jobs:
         run: cmake --build build --config Release
 
       - name: Package artifacts
-        shell: bash
+        shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK
-          mkdir -p dist/bin
-          mkdir -p dist/include/core
-          mkdir -p dist/lib
+          # 1. Создаем чистую структуру папок дистрибутива
+          New-Item -ItemType Directory -Force -Path "dist/bin"
+          New-Item -ItemType Directory -Force -Path "dist/include/core"
+          New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 2. ЖЕЛЕЗОБЕТОННО: Копируем бинарники напрямую из папок сборки Visual Studio
-          if [ -d "build/Release" ]; then
-            # На Windows всё лежит в build/Release
-            cp build/Release/*.exe dist/bin/ 2>/dev/null || true
-            cp build/Release/*.dll dist/bin/ 2>/dev/null || true
-            cp build/Release/*.lib dist/lib/ 2>/dev/null || true
-          else
-            # На Linux/Mac всё лежит прямо в корне папки build
-            cp build/3DAndEngine dist/bin/ 2>/dev/null || true
-            cp build/libengine_core_lib* dist/bin/ 2>/dev/null || true
-            cp build/*.so dist/bin/ 2>/dev/null || cp build/*.dylib dist/bin/ 2>/dev/null || true
-          fi
+          # 2. РЕКУРСИВНЫЙ ПОИСК БИНАРНИКОВ:
+          # PowerShell сам прочешет всю папку build сверху донизу, найдет .exe, .dll и .lib и скопирует их!
+          Get-ChildItem -Path "build" -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' } | Copy-Item -Destination "dist/bin/" -Force
+          Get-ChildItem -Path "build" -Recurse -File | Where-Object { $_.Extension -eq '.lib' } | Copy-Item -Destination "dist/lib/" -Force
           
-          # 3. Копируем заголовочные файлы инфраструктуры для разработчиков плагинов
-          cp -r include/core/* dist/include/core/ 2>/dev/null || true
+          # 3. Чистим папку bin от временного мусора тестов, если он туда попал
+          Get-ChildItem -Path "dist/bin" -File | Where-Object { $_.Name -like "*unit_tests*" } | Remove-Item -Force
           
-          # 4. Копируем файл конфигурации
-          if [ -f "config.json" ]; then
-            cp config.json dist/bin/ 2>/dev/null || true
-          fi
+          # 4. Копируем заголовочные файлы инфраструктуры для SDK
+          if (Test-Path "include/core") {
+              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
+          }
           
-          # 5. Упаковываем всю структуру встроенным архиватором CMake
-          cd dist && cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
-
+          # 5. Копируем файл конфигурации
+          if (Test-Path "config.json") {
+              Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
+          }
+          
+          # 6. Упаковываем все через встроенный архиватор CMake
+          Set-Location dist
+          cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
 
 
 
