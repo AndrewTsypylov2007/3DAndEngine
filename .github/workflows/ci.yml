@@ -31,7 +31,7 @@ jobs:
       shell: bash
       run: |
         if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-          git clone git://://github.com vcpkg || git clone https://github.com vcpkg
+          git -c credential.helper= clone https://github.com vcpkg
         fi
 
     - name: Bootstrap vcpkg (Linux/macOS)
@@ -121,7 +121,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
-            git clone git://://github.com vcpkg || git clone https://github.com vcpkg
+            git -c credential.helper= clone https://github.com vcpkg
           fi
 
       - name: Bootstrap vcpkg (Linux/macOS)
