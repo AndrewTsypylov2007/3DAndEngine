@@ -27,7 +27,6 @@ jobs:
     - name: Configure CMake Target
       shell: bash
       run: |
-        # Флаг --no-builtin-baseline отключает жесткую валидацию коммитов портов
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
           -DBUILD_TESTS=ON \
@@ -81,34 +80,42 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # 1. Создаем чистую структуру папок дистрибутива
+          # 1. Создаем чистую структуру папок дистрибутива SDK
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 2. РЕКУРСИВНЫЙ ПОИСК БИНАРНИКОВ:
-          # PowerShell сам прочешет всю папку build сверху донизу, найдет .exe, .dll и .lib и скопирует их!
-          Get-ChildItem -Path "build" -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' } | Copy-Item -Destination "dist/bin/" -Force
-          Get-ChildItem -Path "build" -Recurse -File | Where-Object { $_.Extension -eq '.lib' } | Copy-Item -Destination "dist/lib/" -Force
+          # 2. ТОТАЛЬНЫЙ ПОИСК БИНАРНИКОВ ПО ВСЕМУ КАТАЛОГУ (РЕНТГЕН):
+          # Сканируем весь рабочий каталог проекта, игнорируя папку dist, чтобы избежать зацикливания.
           
-          # 3. Чистим папку bin от временного мусора тестов, если он туда попал
+          # Ищем исполняемый файл движка по имени (найдет и 3DAndEngine.exe на Windows, и 3DAndEngine на Linux/Mac)
+          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.BaseName -eq "3DAndEngine" } | Copy-Item -Destination "dist/bin/" -Force
+          
+          # Ищем саму динамическую библиотеку ядра движка (пропуская файлы импорта .lib)
+          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.Name -like "*engine_core_lib*" -and $_.Extension -ne ".lib" } | Copy-Item -Destination "dist/bin/" -Force
+          
+          # Забираем сторонние DLL (spdlog, fmt) и Unix-библиотеки (.so, .dylib), которые vcpkg скопировал в папки сборки
+          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and ($_.Name -eq "spdlog.dll" -or $_.Name -eq "fmt.dll" -or $_.Extension -in '.so', '.dylib') } | Copy-Item -Destination "dist/bin/" -Force
+          
+          # Находим служебные файлы .lib для статической линковки плагинов на Windows и кладем их в папку lib
+          Get-ChildItem -Path "." -Recurse -File | Where-Object { $_.FullName -notlike "*dist*" -and $_.Extension -eq ".lib" } | Copy-Item -Destination "dist/lib/" -Force
+          
+          # 3. Чистим папку bin от случайных артефактов тестирования, если они туда просочились
           Get-ChildItem -Path "dist/bin" -File | Where-Object { $_.Name -like "*unit_tests*" } | Remove-Item -Force
           
-          # 4. Копируем заголовочные файлы инфраструктуры для SDK
+          # 4. Копируем заголовочные файлы инфраструктуры для разработки модулей
           if (Test-Path "include/core") {
               Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
           }
           
-          # 5. Копируем файл конфигурации
+          # 5. Копируем файл настроек
           if (Test-Path "config.json") {
               Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
           }
           
-          # 6. Упаковываем все через встроенный архиватор CMake
+          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
           Set-Location dist
           cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
-
-
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
