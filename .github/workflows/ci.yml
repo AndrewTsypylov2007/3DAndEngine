@@ -53,6 +53,8 @@ jobs:
     name: Build and upload release artifacts
     runs-on: ${{ matrix.os }}
     if: github.event_name == 'release'
+    permissions:
+      contents: write
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
