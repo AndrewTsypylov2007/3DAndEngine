@@ -22,9 +22,8 @@ jobs:
     - name: Setup CMake
       uses: jwlawson/actions-setup-cmake@v2
       with:
-        cmake-version: '3.25.0'
+        cmakeVersion: '3.25.0'        # <-- ИСПРАВЛЕНО ТУТ: Заглавная V без дефиса
 
-    # Переключаем Windows-сервер на нативную инициализацию Developer Command Prompt
     - name: Set up Developer Command Prompt for MSVC
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
@@ -32,7 +31,6 @@ jobs:
     - name: Configure CMake Target
       shell: bash
       run: |
-        # Мы убрали флаг -G. CMake сам автоматически выберет НОВЕЙШУЮ Visual Studio, которая есть на сервере
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
           -DBUILD_TESTS=ON \
@@ -71,9 +69,8 @@ jobs:
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
         with:
-          cmake-version: '3.25.0'
+          cmakeVersion: '3.25.0'      # <-- ИСПРАВЛЕНО ТУТ: Заглавная V без дефиса
 
-      # Инициализируем компилятор для Release-сборки
       - name: Set up Developer Command Prompt for MSVC
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
