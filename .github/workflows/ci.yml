@@ -25,6 +25,7 @@ jobs:
         cmake-version: '3.25.0'
 
     - name: Clone vcpkg
+      shell: bash
       run: |
         if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
           git clone https://github.com/microsoft/vcpkg.git vcpkg
@@ -32,14 +33,13 @@ jobs:
 
     - name: Bootstrap vcpkg (Linux/macOS)
       if: runner.os != 'Windows'
+      shell: bash
       run: ./vcpkg/bootstrap-vcpkg.sh
 
     - name: Bootstrap vcpkg (Windows)
       if: runner.os == 'Windows'
-      shell: pwsh
-      run: |
-        & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat"
-
+      shell: bash
+      run: ./vcpkg/bootstrap-vcpkg.bat
 
     - name: Cache vcpkg packages
       uses: actions/cache@v4
@@ -63,6 +63,7 @@ jobs:
           ${{ runner.os }}-cmake-${{ matrix.config }}-
 
     - name: Install vcpkg dependencies
+      shell: bash
       run: |
         if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
           ./vcpkg/vcpkg install --manifest --triplet x64-linux
@@ -107,6 +108,7 @@ jobs:
           cmake-version: '3.25.0'
 
       - name: Clone vcpkg
+        shell: bash
         run: |
           if [ ! -d "${{ github.workspace }}/vcpkg" ]; then
             git clone https://github.com/microsoft/vcpkg.git vcpkg
@@ -114,15 +116,16 @@ jobs:
 
       - name: Bootstrap vcpkg (Linux/macOS)
         if: runner.os != 'Windows'
+        shell: bash
         run: ./vcpkg/bootstrap-vcpkg.sh
 
       - name: Bootstrap vcpkg (Windows)
         if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          & "${{ github.workspace }}\vcpkg\bootstrap-vcpkg.bat"
+        shell: bash
+        run: ./vcpkg/bootstrap-vcpkg.bat
 
       - name: Install vcpkg dependencies
+        shell: bash
         run: |
           if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
             ./vcpkg/vcpkg install --manifest --triplet x64-linux
