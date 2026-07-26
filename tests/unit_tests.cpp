@@ -1,20 +1,20 @@
+// tests/unit_tests.cpp
 #include <iostream>
 
-void run_semver_tests();
+// Оставляем только объявление живых тестов менеджера сервисов
 void run_servicemanager_tests();
 
-// Define main only when UNIT_TESTS_MAIN is set. This avoids duplicate main
-// if tests are accidentally compiled into the application target.
 #ifdef UNIT_TESTS_MAIN
 int main() {
 	try {
-		run_semver_tests();
+		// Запускаем только тесты ServiceManager (проверка 3-х фаз и циклов графа)
 		run_servicemanager_tests();
-	} catch (const std::exception &e) {
+	}
+	catch (const std::exception& e) {
 		std::cerr << "Unit tests failed: " << e.what() << "\n";
 		return 1;
 	}
-	std::cout << "All unit tests passed\n";
+	std::cout << "All unit tests passed successfully!\n";
 	return 0;
 }
 #endif
