@@ -19,10 +19,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Setup CMake
-      uses: jwlawson/actions-setup-cmake@v2
-      with:
-        cmakeVersion: '3.25.0'        # <-- ИСПРАВЛЕНО ТУТ: Заглавная V без дефиса
+    # Экшены настройки CMake удалены. Используем нативный CMake из системы.
 
     - name: Set up Developer Command Prompt for MSVC
       if: matrix.os == 'windows-latest'
@@ -66,10 +63,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup CMake
-        uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmakeVersion: '3.25.0'      # <-- ИСПРАВЛЕНО ТУТ: Заглавная V без дефиса
+      # Экшены настройки CMake удалены. Используем нативный CMake из системы.
 
       - name: Set up Developer Command Prompt for MSVC
         if: matrix.os == 'windows-latest'
