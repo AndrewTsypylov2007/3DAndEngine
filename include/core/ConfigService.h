@@ -6,20 +6,23 @@
 
 namespace core {
 
-class ConfigService : public IService {
-public:
-	ConfigService();
-	~ConfigService();
+	class ConfigService : public IService {
+	public:
+		ConfigService();
+		~ConfigService();
 
-	void start() override;
-	void stop() override;
+		// Реализация имени для версии 0.1.1
+		std::string getServiceName() const override { return "ConfigService"; }
 
-	bool loadFromFile(const std::string &path);
-	const nlohmann::json& json() const { return json_; }
+		void start() override;
+		void stop() override;
 
-private:
-	nlohmann::json json_;
-	std::string loadedPath_;
-};
+		bool loadFromFile(const std::string& path);
+		const nlohmann::json& json() const { return json_; }
+
+	private:
+		nlohmann::json json_;
+		std::string loadedPath_;
+	};
 
 } // namespace core

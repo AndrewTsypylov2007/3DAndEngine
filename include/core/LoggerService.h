@@ -1,30 +1,34 @@
 #pragma once
-
 #include "IService.h"
+#include <spdlog/spdlog.h>
 #include <memory>
 #include <string>
 
-namespace spdlog { class logger; }
-
 namespace core {
 
-class LoggerService : public IService {
-public:
-	LoggerService();
-	~LoggerService();
+    class LoggerService : public IService {
+    public:
+        LoggerService();
+        virtual ~LoggerService();
 
-	void start() override;
-	void stop() override;
+        // Паспорт сервиса v0.1.1
+        std::string getServiceName() const override { return "LoggerService"; }
 
-	// Уровневые методы
-	void info(const std::string &msg);
-	void warn(const std::string &msg);
-	void error(const std::string &msg);
+        // Жизненный цикл (согласно твоему IService.h)
+        bool init(ServiceManager& services) override;
+        void start() override;
+        void stop() override;
 
-	std::shared_ptr<spdlog::logger> logger();
+        // Методы логирования (теперь они точно члены класса)
+        void info(const std::string& msg);
+        void warn(const std::string& msg);
+        void error(const std::string& msg);
 
-private:
-	std::shared_ptr<spdlog::logger> logger_;
-};
+        // Метод доступа к объекту
+        std::shared_ptr<spdlog::logger> getLogger();
+
+    private:
+        std::shared_ptr<spdlog::logger> logger_; // Та самая переменная
+    };
 
 } // namespace core

@@ -1,4 +1,3 @@
-// src/core/Application.cpp
 #include "../../include/core/Application.h"
 #include <iostream>
 #include <thread>
@@ -10,7 +9,7 @@
 namespace core {
 
 	Application::Application() {
-		// Гарантированно создаем шину событий при старте объекта, убирая nullptr-краши
+		// Гарантированно создаем шину событий при старте объекта
 		eventBus_ = std::make_shared<core::EventBus>();
 	}
 
@@ -18,6 +17,7 @@ namespace core {
 
 	int Application::run() {
 		running_ = true;
+		std::cerr << "engine_core starting...\n";
 		std::cerr << "[Core] Application starting...\n";
 
 		// 1. Регистрируем базовый сервис конфигурации
@@ -35,15 +35,14 @@ namespace core {
 		if (configLoaded) {
 			try {
 				auto j = configSvc->json();
-				// Умная проверка: ищем настройки в блоке "core", либо в корне JSON
 				auto coreBlock = (j.contains("core") && j["core"].is_object()) ? j["core"] : j;
 
 				enableLogger = coreBlock.value("enable_logger", true);
 				enableScheduler = coreBlock.value("enable_scheduler", true);
-				enableDiscovery = coreBlock.value("enable_plugin_discovery", true); // сохраняем имя ключа для совместимости
+				enableDiscovery = coreBlock.value("enable_plugin_discovery", true);
 			}
 			catch (...) {
-				// В случае кривого JSON остаемся на безопасных дефолтах (true)
+				// В случае ошибки парсинга остаемся на безопасных дефолтах
 			}
 		}
 
@@ -59,7 +58,13 @@ namespace core {
 			services_.registerService<core::TaskScheduler>(sched);
 		}
 
-		// Запускаем граф сервисов (теперь тут честный 3-фазный запуск и валидация циклов!)
+		// ==============================================================================
+		// КЛЮЧЕВОЕ ОБНОВЛЕНИЕ v0.1.1: Регистрация Шины Событий как именованного сервиса.
+		// Без этой строки плагины не смогут поймать событие "tick" или "input".
+		// ==============================================================================
+		services_.registerService<core::EventBus>(eventBus_);
+
+		// Запускаем граф сервисов (выполняет init, start, postStart)
 		services_.startAll();
 
 		auto lg = services_.getService<core::LoggerService>();
@@ -82,35 +87,29 @@ namespace core {
 				}
 			}
 
-			// Безопасный дефолт, если пути в конфиге не заданы
 			if (libraryPaths.empty()) {
 				libraryPaths.push_back("plugins");
 			}
 
-			// Сканируем папки и загружаем DLL в память процесса
+			// Использование обновленного метода discoverAndLoad (2 аргумента)
 			for (auto& path : libraryPaths) {
-				foundDlls += libraryLoader_.discoverAndLoad(path);
+				foundDlls += libraryLoader_.discoverAndLoad(path, services_);
 			}
 		}
 
 		if (foundDlls > 0) {
 			std::cerr << "[Application] Dynamic libraries loaded into memory: " << foundDlls << "\n";
-			// Вызываем во всех DLL функцию инициализации "InitializeModule", если она там экспортирована
-			if (!libraryLoader_.initializeAll(services_)) {
-				std::cerr << "[Application] Library initialization failed — shutting down.\n";
-				libraryLoader_.unloadAll();
-				services_.stopAll();
-				return -1;
-			}
+			// Массовая инициализация всех найденных плагинов
+			libraryLoader_.initializeAll(services_);
 		}
 
-		// Главный цикл приложения (простой симуляционный loop)
+		// Главный цикл приложения
 		int ticks = 0;
-		while (running_ && ticks < 5) {
+		while (running_) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
 			++ticks;
 
-			// Теперь eventBus_ гарантированно валиден и событие уйдет подписчикам в DLL/сервисы
+			// Трансляция системного тика в EventBus (для геймпадов и логики)
 			if (eventBus_) eventBus_->publish("tick");
 
 			if (lg) {
@@ -119,6 +118,9 @@ namespace core {
 			else {
 				std::cerr << "[Core] tick " << ticks << "\n";
 			}
+
+			// Ограничитель для предотвращения вечного цикла без UI (в будущем проверяем окна)
+			if (ticks > 5000) break;
 		}
 
 		std::cerr << "[Core] Shutting down...\n";

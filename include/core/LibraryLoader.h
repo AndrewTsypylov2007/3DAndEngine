@@ -1,40 +1,47 @@
-// include/core/LibraryLoader.h
 #pragma once
 
-#include <vector>
+#include "IService.h"
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace core {
 
-	class ServiceManager;
+    // 1. Объявляем структуру, которую не видел компилятор (LoadedLibrary)
+    struct LoadedLibrary {
+        std::string path;
+        void* handle = nullptr;
+    };
 
-	// Платформо-независимый тип хендла динамической библиотеки
-	using LibHandle = void*;
+    class LibraryLoader : public IService {
+    public:
+        LibraryLoader();
+        ~LibraryLoader();
 
-	struct LoadedLibrary {
-		LibHandle lib = nullptr;
-		std::string path;
-	};
+        // Паспорт сервиса v0.1.1
+        std::string getServiceName() const override { return "LibraryLoader"; }
 
-	class LibraryLoader {
-	public:
-		LibraryLoader() = default;
-		~LibraryLoader();
+        // Методы жизненного цикла (IService)
+        bool init(ServiceManager& services) override { return true; }
+        void start() override {}
+        void stop() override;
 
-		// Найти все DLL/so/dylib в папке и загрузить их
-		int discoverAndLoad(const std::string& directory);
+        // Основные методы загрузки
+        bool loadLibrary(const std::string& path);
+        void* getSymbol(const std::string& libPath, const std::string& symbol);
 
-		// Загрузить конкретную библиотеку по пути
-		bool loadLibrary(const std::string& path);
+        // Массовые операции (используются в Application.cpp)
+        int discoverAndLoad(const std::string& path, ServiceManager& services);
+        void initializeAll(ServiceManager& services);
+        void unloadAll();
 
-		// Вызвать во всех загруженных DLL функцию инициализации
-		bool initializeAll(ServiceManager& services);
+    private:
+        // Внутренние системные функции (openLibrary / closeLibrary)
+        void* openLibrary(const std::string& path);
+        void closeLibrary(void* handle);
 
-		// Выгрузить все библиотеки из памяти
-		void unloadAll();
-
-	private:
-		std::vector<LoadedLibrary> libraries_;
-	};
+        // 2. Тот самый "необъявленный" контейнер (libraries_)
+        std::unordered_map<std::string, LoadedLibrary> libraries_;
+    };
 
 } // namespace core

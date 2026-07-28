@@ -1,29 +1,33 @@
 #pragma once
-
 #include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 #include <mutex>
 #include <cstdint>
+#include "IService.h"
 
 namespace core {
 
-using EventHandlerId = std::uint64_t;
+    using EventHandlerId = std::uint64_t;
 
-class EventBus {
-public:
-	EventBus() = default;
-	~EventBus() = default;
+    class EventBus : public IService {
+    public:
+        EventBus() = default;
+        virtual ~EventBus() = default;
 
-	EventHandlerId subscribe(const std::string &topic, std::function<void()> handler);
-	void unsubscribe(const std::string &topic, EventHandlerId id);
-	void publish(const std::string &topic);
+        // Реализация методов IService
+        std::string getServiceName() const override { return "EventBus"; }
+        bool init(ServiceManager& services) override { return true; }
 
-private:
-	std::mutex mutex_;
-	std::unordered_map<std::string, std::vector<std::pair<EventHandlerId, std::function<void()>>>> handlers_;
-	EventHandlerId nextId_{1};
-};
+        EventHandlerId subscribe(const std::string& topic, std::function<void()> handler);
+        void unsubscribe(const std::string& topic, EventHandlerId id);
+        void publish(const std::string& topic);
 
-} // namespace core
+    private:
+        std::mutex mutex_;
+        std::unordered_map<std::string, std::vector<std::pair<EventHandlerId, std::function<void()>>>> handlers_;
+        EventHandlerId nextId_{ 1 };
+    };
+
+}

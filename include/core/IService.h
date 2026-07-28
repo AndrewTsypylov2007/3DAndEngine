@@ -1,25 +1,19 @@
-// include/core/IService.h
 #pragma once
+#include <string>
 
 namespace core {
+    class ServiceManager;
 
-	class ServiceManager;
+    class IService {
+    public:
+        virtual ~IService() = default;
 
-	class IService {
-	public:
-		virtual ~IService() = default;
+        // Фиксация имени сервиса для надежной связи между EXE и DLL
+        virtual std::string getServiceName() const = 0;
 
-		// Фаза 1: Подготовка сервиса и проверка зависимостей
-		virtual bool init(ServiceManager& services) { return true; }
-
-		// Фаза 2: Основной запуск сервиса
-		virtual void start() {}
-
-		// Фаза 3: Пост-инициализация (когда запущены абсолютно все сервисы)
-		virtual void postStart() {}
-
-		// Остановка сервиса (будет вызываться в обратном порядке)
-		virtual void stop() {}
-	};
-
-} // namespace core
+        virtual bool init(ServiceManager& services) { return true; }
+        virtual void start() {}
+        virtual void postStart() {}
+        virtual void stop() {}
+    };
+}

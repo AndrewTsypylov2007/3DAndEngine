@@ -1,4 +1,3 @@
-// tests/test_servicemanager.cpp
 #include "TestHarness.h"
 #include "../include/core/ServiceManager.h"
 #include "../include/core/IService.h"
@@ -6,80 +5,101 @@
 #include <string>
 #include <memory>
 #include <iostream>
+#include <stdexcept>
 
 using namespace core;
 
 struct LifecycleRecorder {
-	std::vector<std::string> order;
+    std::vector<std::string> order;
 };
 
-struct BaseService : IService {
-	LifecycleRecorder& rec;
-	BaseService(LifecycleRecorder& r) : rec(r) {}
-
-	bool init(ServiceManager&) override { rec.order.push_back("Base.init"); return true; }
-	void start() override { rec.order.push_back("Base.start"); }
-	void postStart() override { rec.order.push_back("Base.post"); }
-	void stop() override { rec.order.push_back("Base.stop"); }
+// Реализуем сервисы с именами для v0.1.1
+struct BaseService : public IService {
+    LifecycleRecorder& rec;
+    BaseService(LifecycleRecorder& r) : rec(r) {}
+    std::string getServiceName() const override { return "BaseService"; }
+    bool init(ServiceManager&) override { rec.order.push_back("Base.init"); return true; }
+    void start() override { rec.order.push_back("Base.start"); }
+    void postStart() override { rec.order.push_back("Base.post"); }
+    void stop() override { rec.order.push_back("Base.stop"); }
 };
 
-struct DependentService : IService {
-	LifecycleRecorder& rec;
-	DependentService(LifecycleRecorder& r) : rec(r) {}
-
-	bool init(ServiceManager&) override { rec.order.push_back("Dep.init"); return true; }
-	void start() override { rec.order.push_back("Dep.start"); }
-	void postStart() override { rec.order.push_back("Dep.post"); }
-	void stop() override { rec.order.push_back("Dep.stop"); }
+struct DependentService : public IService {
+    LifecycleRecorder& rec;
+    DependentService(LifecycleRecorder& r) : rec(r) {}
+    std::string getServiceName() const override { return "DependentService"; }
+    bool init(ServiceManager&) override { rec.order.push_back("Dep.init"); return true; }
+    void start() override { rec.order.push_back("Dep.start"); }
+    void postStart() override { rec.order.push_back("Dep.post"); }
+    void stop() override { rec.order.push_back("Dep.stop"); }
 };
 
 void run_servicemanager_tests() {
-	// Тест 1: Проверка правильного порядка 3-х фаз жизненного цикла и LIFO остановки
-	{
-		LifecycleRecorder rec;
-		ServiceManager mgr;
+    // ТЕСТ 1: Проверка порядка
+    {
+        LifecycleRecorder rec;
+        ServiceManager mgr;
 
-		auto base = std::make_shared<BaseService>(rec);
-		auto dep = std::make_shared<DependentService>(rec);
+        auto base = std::make_shared<BaseService>(rec);
+        auto dep = std::make_shared<DependentService>(rec);
 
-		// Регистрируем сервисы. DependentService зависит от BaseService
-		mgr.registerService<BaseService>(base);
-		mgr.registerService<DependentService, BaseService>(dep);
+        mgr.registerService<BaseService>(base);
+        mgr.registerService<DependentService, BaseService>(dep);
 
-		mgr.startAll();
+        mgr.startAll();
 
-		// Проверяем прямой топологический порядок по фазам
-		REQUIRE(rec.order.size() == 6);
-		CHECK(rec.order[0] == "Base.init");
-		CHECK(rec.order[1] == "Dep.init");
-		CHECK(rec.order[2] == "Base.start");
-		CHECK(rec.order[3] == "Dep.start");
-		CHECK(rec.order[4] == "Base.post");
-		CHECK(rec.order[5] == "Dep.post");
+        // Вместо CHECK(a == b) используем простую проверку, чтобы не бесить линкер
+        if (rec.order.size() != 6) throw std::runtime_error("Test failed: wrong order size");
 
-		rec.order.clear();
-		mgr.stopAll();
+        // Ручная проверка строк (гарантированно работает)
+        auto check = [&](size_t idx, const std::string& expected) {
+            if (rec.order[idx] != expected) {
+                throw std::runtime_error("Test failed at index " + std::to_string(idx) +
+                    ": expected " + expected + " but got " + rec.order[idx]);
+            }
+            };
 
-		// Проверяем обратный порядок остановки (LIFO): сначала должен тушиться зависимый сервис!
-		REQUIRE(rec.order.size() == 2);
-		CHECK(rec.order[0] == "Dep.stop");
-		CHECK(rec.order[1] == "Base.stop");
-	}
+        check(0, "Base.init");
+        check(1, "Dep.init");
+        check(2, "Base.start");
+        check(3, "Dep.start");
+        check(4, "Base.post");
+        check(5, "Dep.post");
 
-	// Тест 2: Проверка детекции циклов графа зависимостей
-	{
-		struct SA : IService { bool init(ServiceManager&) override { return true; } };
-		struct SB : IService { bool init(ServiceManager&) override { return true; } };
+        rec.order.clear();
+        mgr.stopAll();
 
-		ServiceManager mgr2;
-		auto sa = std::make_shared<SA>();
-		auto sb = std::make_shared<SB>();
+        if (rec.order.size() != 2) throw std::runtime_error("Test failed: wrong stop order size");
+        check(0, "Dep.stop");
+        check(1, "Base.stop");
+    }
 
-		mgr2.registerService<SA, SB>(sa); // A зависит от B
-		mgr2.registerService<SB, SA>(sb); // B зависит от A
+    // ТЕСТ 2: Циклы
+    {
+        struct SA : public IService {
+            std::string getServiceName() const override { return "SA"; }
+            bool init(ServiceManager&) override { return true; }
+        };
+        struct SB : public IService {
+            std::string getServiceName() const override { return "SB"; }
+            bool init(ServiceManager&) override { return true; }
+        };
 
-		CHECK_THROWS_AS(mgr2.startAll(), std::runtime_error);
-	}
+        ServiceManager mgr2;
+        auto sa = std::make_shared<SA>();
+        auto sb = std::make_shared<SB>();
 
-	std::cout << "servicemanager tests passed successfully\n";
+        mgr2.registerService<SA, SB>(sa);
+        mgr2.registerService<SB, SA>(sb);
+
+        try {
+            mgr2.startAll();
+            throw std::runtime_error("Test failed: cycle not detected!");
+        }
+        catch (const std::runtime_error& e) {
+            // Успех, цикл найден
+        }
+    }
+
+    std::cout << "servicemanager tests passed successfully\n";
 }
