@@ -19,7 +19,7 @@ namespace core {
         ~TaskScheduler();
 
         // Паспорт сервиса для версии 0.1.1
-        std::string getServiceName() const override { return "TaskScheduler"; }
+        const char* getServiceName() const override { return "TaskScheduler"; }
 
         // Методы жизненного цикла по стандарту IService
         bool init(ServiceManager& services) override;

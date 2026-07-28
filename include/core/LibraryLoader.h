@@ -19,7 +19,7 @@ namespace core {
         ~LibraryLoader();
 
         // Паспорт сервиса v0.1.1
-        std::string getServiceName() const override { return "LibraryLoader"; }
+        const char* getServiceName() const override { return "LibraryLoader"; }
 
         // Методы жизненного цикла (IService)
         bool init(ServiceManager& services) override { return true; }

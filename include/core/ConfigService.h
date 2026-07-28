@@ -12,7 +12,7 @@ namespace core {
 		~ConfigService();
 
 		// Реализация имени для версии 0.1.1
-		std::string getServiceName() const override { return "ConfigService"; }
+		const char* getServiceName() const override { return "ConfigService"; }
 
 		void start() override;
 		void stop() override;

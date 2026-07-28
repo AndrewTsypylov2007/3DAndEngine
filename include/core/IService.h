@@ -1,5 +1,4 @@
 #pragma once
-#include <string>
 
 namespace core {
     class ServiceManager;
@@ -8,8 +7,8 @@ namespace core {
     public:
         virtual ~IService() = default;
 
-        // Фиксация имени сервиса для надежной связи между EXE и DLL
-        virtual std::string getServiceName() const = 0;
+        // C-String интерфейс для безопасного прохождения через границы DLL
+        virtual const char* getServiceName() const = 0;
 
         virtual bool init(ServiceManager& services) { return true; }
         virtual void start() {}

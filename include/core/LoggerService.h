@@ -12,7 +12,7 @@ namespace core {
         virtual ~LoggerService();
 
         // Паспорт сервиса v0.1.1
-        std::string getServiceName() const override { return "LoggerService"; }
+        const char* getServiceName() const override { return "LoggerService"; }
 
         // Жизненный цикл (согласно твоему IService.h)
         bool init(ServiceManager& services) override;

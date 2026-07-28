@@ -17,7 +17,7 @@ namespace core {
         virtual ~EventBus() = default;
 
         // Реализация методов IService
-        std::string getServiceName() const override { return "EventBus"; }
+        const char* getServiceName() const override { return "EventBus"; }
         bool init(ServiceManager& services) override { return true; }
 
         EventHandlerId subscribe(const std::string& topic, std::function<void()> handler);

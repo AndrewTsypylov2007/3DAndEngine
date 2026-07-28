@@ -17,7 +17,7 @@ struct LifecycleRecorder {
 struct BaseService : public IService {
     LifecycleRecorder& rec;
     BaseService(LifecycleRecorder& r) : rec(r) {}
-    std::string getServiceName() const override { return "BaseService"; }
+    const char* getServiceName() const override { return "BaseService"; }
     bool init(ServiceManager&) override { rec.order.push_back("Base.init"); return true; }
     void start() override { rec.order.push_back("Base.start"); }
     void postStart() override { rec.order.push_back("Base.post"); }
@@ -27,7 +27,7 @@ struct BaseService : public IService {
 struct DependentService : public IService {
     LifecycleRecorder& rec;
     DependentService(LifecycleRecorder& r) : rec(r) {}
-    std::string getServiceName() const override { return "DependentService"; }
+    const char* getServiceName() const override { return "DependentService"; }
     bool init(ServiceManager&) override { rec.order.push_back("Dep.init"); return true; }
     void start() override { rec.order.push_back("Dep.start"); }
     void postStart() override { rec.order.push_back("Dep.post"); }
@@ -77,11 +77,11 @@ void run_servicemanager_tests() {
     // ТЕСТ 2: Циклы
     {
         struct SA : public IService {
-            std::string getServiceName() const override { return "SA"; }
+            const char* getServiceName() const override { return "SA"; }
             bool init(ServiceManager&) override { return true; }
         };
         struct SB : public IService {
-            std::string getServiceName() const override { return "SB"; }
+            const char* getServiceName() const override { return "SB"; }
             bool init(ServiceManager&) override { return true; }
         };
 

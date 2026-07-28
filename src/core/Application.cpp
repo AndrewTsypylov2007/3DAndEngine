@@ -9,7 +9,7 @@
 namespace core {
 
 	Application::Application() {
-		// Гарантированно создаем шину событий при старте объекта
+		// Гарантированно создаем шину событий при старте объекта ядра
 		eventBus_ = std::make_shared<core::EventBus>();
 	}
 
@@ -20,14 +20,14 @@ namespace core {
 		std::cerr << "engine_core starting...\n";
 		std::cerr << "[Core] Application starting...\n";
 
-		// 1. Регистрируем базовый сервис конфигурации
+		// 1. РЕГИСТРАЦИЯ БАЗОВЫХ СЕРВИСОВ
 		auto configSvc = std::make_shared<core::ConfigService>();
 		services_.registerService<core::ConfigService>(configSvc);
 
-		// Попытка загрузить конфиг синхронно
+		// Попытка загрузить конфиг
 		bool configLoaded = configSvc->loadFromFile("config.json");
 
-		// Дефолтные флаги для управления составом ядра
+		// Дефолтные настройки состава ядра
 		bool enableLogger = true;
 		bool enableScheduler = true;
 		bool enableDiscovery = true;
@@ -42,34 +42,35 @@ namespace core {
 				enableDiscovery = coreBlock.value("enable_plugin_discovery", true);
 			}
 			catch (...) {
-				// В случае ошибки парсинга остаемся на безопасных дефолтах
+				// При ошибках парсинга остаемся на безопасных значениях
 			}
 		}
 
-		// 2. Опционально регистрируем Логгер
+		// 2. РЕГИСТРАЦИЯ ОПЦИОНАЛЬНЫХ СИСТЕМ
 		if (enableLogger) {
 			auto loggerSvc = std::make_shared<core::LoggerService>();
 			services_.registerService<core::LoggerService>(loggerSvc);
 		}
 
-		// 3. Опционально регистрируем Планировщик задач
 		if (enableScheduler) {
 			auto sched = std::make_shared<core::TaskScheduler>();
 			services_.registerService<core::TaskScheduler>(sched);
 		}
 
 		// ==============================================================================
-		// КЛЮЧЕВОЕ ОБНОВЛЕНИЕ v0.1.1: Регистрация Шины Событий как именованного сервиса.
-		// Без этой строки плагины не смогут поймать событие "tick" или "input".
+		// КЛЮЧЕВОЙ МОМЕНТ ОБНОВЛЕНИЯ v0.1.1:
+		// Регистрируем Шину Событий в ServiceManager. 
+		// Теперь плагины найдут её через services.getServiceByName("EventBus")
 		// ==============================================================================
 		services_.registerService<core::EventBus>(eventBus_);
 
-		// Запускаем граф сервисов (выполняет init, start, postStart)
+		// Запускаем граф зависимостей (выполняет init, start, postStart)
 		services_.startAll();
 
 		auto lg = services_.getService<core::LoggerService>();
 		if (lg) lg->info("Application services started successfully");
 
+		// 3. ЗАГРУЗКА ПЛАГИНОВ (DLL)
 		int foundDlls = 0;
 		if (enableDiscovery) {
 			std::vector<std::string> libraryPaths;
@@ -82,50 +83,52 @@ namespace core {
 						}
 					}
 				}
-				catch (...) {
-					libraryPaths.clear();
-				}
+				catch (...) { libraryPaths.clear(); }
 			}
 
+			// Если список пуст, ищем в стандартной папке
 			if (libraryPaths.empty()) {
 				libraryPaths.push_back("plugins");
 			}
 
-			// Использование обновленного метода discoverAndLoad (2 аргумента)
+			// Обновленный вызов discoverAndLoad с передачей контекста сервисов
 			for (auto& path : libraryPaths) {
 				foundDlls += libraryLoader_.discoverAndLoad(path, services_);
 			}
 		}
 
 		if (foundDlls > 0) {
-			std::cerr << "[Application] Dynamic libraries loaded into memory: " << foundDlls << "\n";
-			// Массовая инициализация всех найденных плагинов
+			if (lg) lg->info("Dynamic libraries loaded into memory: " + std::to_string(foundDlls));
+			// Инициализируем все плагины (вызов InitializeModule)
 			libraryLoader_.initializeAll(services_);
 		}
 
-		// Главный цикл приложения
+		// 4. ГЛАВНЫЙ ЦИКЛ ПРИЛОЖЕНИЯ
 		int ticks = 0;
 		while (running_) {
-			std::this_thread::sleep_for(std::chrono::milliseconds(200));
+			// Ограничиваем частоту "тиков" (примерно 60-100Гц для системных нужд)
+			std::this_thread::sleep_for(std::chrono::milliseconds(16));
 			++ticks;
 
-			// Трансляция системного тика в EventBus (для геймпадов и логики)
+			// Рассылка системного события tick. 
+			// Плагины (Input, Window) поймают его и обновят свое состояние.
 			if (eventBus_) eventBus_->publish("tick");
 
-			if (lg) {
-				lg->info("tick " + std::to_string(ticks));
-			}
-			else {
-				std::cerr << "[Core] tick " << ticks << "\n";
+			// Логируем каждый 100-й тик, чтобы не забивать консоль
+			if (ticks % 100 == 0 && lg) {
+				lg->info("System heartbeat: tick " + std::to_string(ticks));
 			}
 
-			// Ограничитель для предотвращения вечного цикла без UI (в будущем проверяем окна)
-			if (ticks > 5000) break;
+			// Ограничитель времени жизни (в будущем заменим на проверку активных окон)
+			if (ticks > 100000) break;
 		}
 
-		std::cerr << "[Core] Shutting down...\n";
+		// 5. КОРРЕКТНОЕ ЗАВЕРШЕНИЕ (LIFO ORDER)
+		if (lg) lg->info("Shutting down engine_core...");
+
 		libraryLoader_.unloadAll();
 		services_.stopAll();
+
 		return 0;
 	}
 
@@ -134,3 +137,4 @@ namespace core {
 	}
 
 } // namespace core
+
