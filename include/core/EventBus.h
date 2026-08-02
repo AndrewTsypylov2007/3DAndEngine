@@ -1,6 +1,6 @@
-// include/core/EventBus.h — Версия v0.2.0 (Strict POSIX Sync)
+// include/core/EventBus.h — Версия v0.2.0 (POSIX Standard Fix)
 #pragma once
-#include "IEventBus.h" // Подключает определение EventHandlerId
+#include "IEventBus.h"
 #include <map>
 #include <string>
 #include <vector>
@@ -11,12 +11,12 @@ namespace core {
     class EventBus : public IEventBus {
     private:
         struct Subscription {
-            core::EventHandlerId id; // ФИКС: Явно пишем пространство имен
+            EventHandlerId id; // Чистый тип из IService
             IEventHandler* handler;
         };
 
         std::map<std::string, std::vector<Subscription>> handlers_;
-        core::EventHandlerId nextId_ = 1; // ФИКС
+        EventHandlerId nextId_ = 1;
         mutable std::shared_mutex mutex_;
 
     public:
@@ -26,8 +26,8 @@ namespace core {
         void start() override {}
         void stop() override {}
 
-        core::EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override; // ФИКС
-        void unsubscribe(std::string_view topic, core::EventHandlerId id) override; // ФИКС
+        EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override;
+        void unsubscribe(std::string_view topic, EventHandlerId id) override;
         void publish(std::string_view topic, std::string_view data = "") override;
     };
 }

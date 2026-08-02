@@ -1,9 +1,12 @@
-// include/core/IService.h — Версия v0.2.0
+// include/core/IService.h — Версия v0.2.0 (Global Type Anchor)
 #pragma once
 
 namespace core {
-    // ВАЖНО: Опережающее объявление вместо инклюда. 
-    // Защищает от циклической зависимости заголовков!
+
+    // Переносим идентификатор сюда. У этого файла ноль инклюдов, 
+    // поэтому тип гарантированно скомпилируется ПЕРВЫМ во всем движке!
+    using EventHandlerId = uint64_t;
+
     class IServiceManager;
 
     class IService {

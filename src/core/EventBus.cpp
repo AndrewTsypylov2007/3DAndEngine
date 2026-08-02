@@ -1,19 +1,19 @@
-// src/core/EventBus.cpp — Версия v0.2.0 (Strict POSIX Sync)
+// src/core/EventBus.cpp — Версия v0.2.0 (POSIX Standard Fix)
 #include "../../include/core/EventBus.h"
 #include <algorithm>
 #include <mutex>
 
 namespace core {
 
-    core::EventHandlerId EventBus::subscribe(std::string_view topic, IEventHandler* handler) {
+    EventHandlerId EventBus::subscribe(std::string_view topic, IEventHandler* handler) {
         if (!handler) return 0;
         std::unique_lock<std::shared_mutex> lock(mutex_);
-        core::EventHandlerId id = nextId_++;
+        EventHandlerId id = nextId_++;
         handlers_[std::string(topic)].push_back({ id, handler });
         return id;
     }
 
-    void EventBus::unsubscribe(std::string_view topic, core::EventHandlerId id) {
+    void EventBus::unsubscribe(std::string_view topic, EventHandlerId id) {
         std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = handlers_.find(std::string(topic));
         if (it == handlers_.end()) return;
