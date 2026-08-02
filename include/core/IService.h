@@ -1,10 +1,10 @@
 // include/core/IService.h — Версия v0.2.0 (Global Type Anchor)
 #pragma once
+#include <cstdint> // ФИКС ДЛЯ LINUX/macOS: Гарантирует видимость uint64_t во всем движке!
 
 namespace core {
 
-    // Переносим идентификатор сюда. У этого файла ноль инклюдов, 
-    // поэтому тип гарантированно скомпилируется ПЕРВЫМ во всем движке!
+    // Теперь этот тип скомпилируется на любой ОС без ошибок visibility
     using EventHandlerId = uint64_t;
 
     class IServiceManager;
