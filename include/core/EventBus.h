@@ -1,4 +1,4 @@
-// include/core/EventBus.h — Версия v0.2.0 (Реализация Ядра)
+// include/core/EventBus.h — Версия v0.2.0 (Crossplatform Sync)
 #pragma once
 #include "IEventBus.h"
 #include <map>
@@ -7,8 +7,10 @@
 #include <shared_mutex>
 
 namespace core {
+
     class EventBus : public IEventBus {
     private:
+        // Структура обязана иметь ровно эти поля!
         struct Subscription {
             EventHandlerId id;
             IEventHandler* handler;
