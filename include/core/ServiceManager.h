@@ -1,18 +1,16 @@
-// include/core/ServiceManager.h — Версия v0.2.0 (Interface-Based Architecture)
+// include/core/ServiceManager.h — Версия v0.2.0 (Crossplatform Sync)
 #pragma once
 #include <memory>
 #include <string>
 #include <map>
 #include <vector>
 #include <shared_mutex>
-#include "IServiceManager.h" // Наследуемся от нового интерфейса чертежа
+#include <mutex>             // ФИКС ДЛЯ LINUX: Добавили для работы std::unique_lock!
+#include "IServiceManager.h"
 #include "IService.h"
 
 namespace core {
 
-    // ВНИМАНИЕ: Макрос CORE_API полностью удален!
-    // Класс скрыт от внешнего линкера, так как плагины будут общаться с ним 
-    // только через базовый указатель IServiceManager*
     class ServiceManager : public IServiceManager {
     private:
         std::map<std::string, std::unique_ptr<IService>> services_;
@@ -26,13 +24,11 @@ namespace core {
         ServiceManager() = default;
         ~ServiceManager() override { stopAll(); }
 
-        // Реализуем контракт абстрактного интерфейса IServiceManager
         IService* getServiceByName(const char* name) const override;
 
-        // Внутренние методы регистрации (используются только внутри Application.cpp ядра)
         template<typename T>
         void registerService(std::unique_ptr<T> service) {
-            std::unique_lock<std::shared_mutex> lock(rwMutex_);
+            std::unique_lock<std::shared_mutex> lock(rwMutex_); // Теперь Linux понимает этот тип!
             if (service) {
                 services_[service->getServiceName()] = std::move(service);
             }
@@ -49,7 +45,6 @@ namespace core {
             }
         }
 
-        // Методы управления жизненным циклом (вызывает только Application)
         void startAll();
         void stopAll();
     };
