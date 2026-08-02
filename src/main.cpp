@@ -1,10 +1,7 @@
+// src/main.cpp — Версия v0.1.5
 #include "../include/core/Application.h"
-#include <iostream>
 
-int main(int argc, char **argv) {
-	core::Application app;
-	std::cerr << "engine_core starting...\n";
-	int rc = app.run();
-	std::cerr << "engine_core exited with code " << rc << "\n";
-	return rc;
+int main() {
+    core::Application app;
+    return app.run();
 }

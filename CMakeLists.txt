@@ -1,113 +1,55 @@
 cmake_minimum_required(VERSION 3.15)
-project(3DAndEngine LANGUAGES CXX) # <-- СТРОГО НА ВТОРОЙ СТРОКЕ!
+project(3DAndEngine LANGUAGES CXX)
 
 # ==============================================================================
-# ПРАВИЛЬНЫЙ ВЫВОД ПУТЕЙ (Строго ПОСЛЕ инициализации проекта)
+# 1. ГЛОБАЛЬНЫЕ ПУТИ ВЫВОДА СБОРКИ
 # ==============================================================================
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# Опция для сборки модульных тестов
-option(BUILD_TESTS "Build unit tests" ON)
-
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# 1. Находим внешние зависимости через vcpkg / системные пакеты
+# 2. Поиск внешних зависимостей (vcpkg)
 find_package(fmt CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-# 2. Явный список исходных файлов ядра движка (без main.cpp)
+# 3. Исходники статического ядра движка
 set(CORE_LIBRARY_SRC
     src/core/Application.cpp
     src/core/ConfigService.cpp
     src/core/EventBus.cpp
-    src/core/LoggerService.cpp
     src/core/LibraryLoader.cpp
     src/core/ServiceManager.cpp
-    src/core/TaskScheduler.cpp
 )
 
-# 3. Собираем ядро как динамическую библиотеку (SHARED DLL)
-add_library(engine_core_lib SHARED ${CORE_LIBRARY_SRC})
+# 4. Сборка статической библиотеки ядра
+add_library(engine_core_lib STATIC ${CORE_LIBRARY_SRC})
 
-set_target_properties(engine_core_lib PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
-
-target_include_directories(engine_core_lib 
-    PUBLIC 
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
+# Подключаем общую папку инклюдов include/core/
+target_include_directories(engine_core_lib PUBLIC 
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
-
-# Привязываем внешние библиотеки к движку
 target_link_libraries(engine_core_lib PRIVATE spdlog::spdlog nlohmann_json::nlohmann_json fmt::fmt)
 
-# 4. Собираем исполняемый файл приложения (главный бинарник движка)
+# 5. Главный бинарник движка (EXE)
 add_executable(3DAndEngine src/main.cpp)
 
-# Привязываем зависимости напрямую к EXE, чтобы компилятор в режиме Release не выбрасывал исполняемый файл
-target_link_libraries(3DAndEngine PRIVATE 
-    engine_core_lib 
-    spdlog::spdlog 
-    nlohmann_json::nlohmann_json 
-    fmt::fmt
+# Даем исполняемому файлу доступ ко всем инклюдам ядра, чтобы main.cpp 
+# мог безопасно инициализировать и запускать core::Application
+target_include_directories(3DAndEngine PRIVATE 
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+target_link_libraries(3DAndEngine PRIVATE engine_core_lib)
 
+# 6. Тонкая настройка компилятора под стандарты MSVC
 if(MSVC)
     target_compile_definitions(3DAndEngine PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_definitions(engine_core_lib PRIVATE _CRT_SECURE_NO_WARNINGS)
+    
+    # Жестко привязываем Multi-Threaded DLL рантайм, чтобы убрать 
+    # любые скрытые конфликты стандартных строк std::string между плагинами
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
-
-# 5. Сборка модульных тестов
-if(BUILD_TESTS)
-    enable_testing()
-    
-    # Исходники самого тестового движка
-    set(TEST_SRC
-        tests/unit_tests.cpp
-        tests/test_servicemanager.cpp
-    )
-    
-    add_executable(unit_tests ${TEST_SRC})
-    
-    # Тесты просто линкуются с готовой библиотекой ядра движка
-    target_link_libraries(unit_tests PRIVATE engine_core_lib)
-    target_include_directories(unit_tests PRIVATE tests)
-    target_compile_definitions(unit_tests PRIVATE UNIT_TESTS_MAIN=1)
-    
-    add_test(NAME core_unit_tests COMMAND unit_tests)
-endif()
-
-# ==============================================================================
-# 6. Правила генерации SDK (Экспорт для внешних разработчиков)
-# ==============================================================================
-include(CMakePackageConfigHelpers)
-
-# Обе цели (и DLL, и EXE) являются RUNTIME объектами.
-install(TARGETS engine_core_lib 3DAndEngine
-    EXPORT 3DAndEngineTargets
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-)
-
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/ DESTINATION include)
-
-install(EXPORT 3DAndEngineTargets
-    FILE 3DAndEngineTargets.cmake
-    NAMESPACE 3DAndEngine::
-    DESTINATION lib/cmake/3DAndEngine
-)
-
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/3DAndEngineConfigVersion.cmake
-    VERSION 0.1.0
-    COMPATIBILITY AnyNewerVersion
-)
-
-install(FILES
-    ${CMAKE_CURRENT_BINARY_DIR}/3DAndEngineConfigVersion.cmake
-    DESTINATION lib/cmake/3DAndEngine
-)

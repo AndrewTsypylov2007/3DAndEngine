@@ -1,36 +1,45 @@
+// src/core/EventBus.cpp — Версия v0.2.0
 #include "../../include/core/EventBus.h"
 #include <algorithm>
-#include <utility>
 
 namespace core {
 
-EventHandlerId EventBus::subscribe(const std::string &topic, std::function<void()> handler) {
-	std::lock_guard<std::mutex> lk(mutex_);
-	auto id = nextId_++;
-	handlers_[topic].emplace_back(id, std::move(handler));
-	return id;
-}
+    EventHandlerId EventBus::subscribe(std::string_view topic, IEventHandler* handler) {
+        if (!handler) return 0;
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        EventHandlerId id = nextId_++;
+        handlers_[std::string(topic)].push_back({ id, handler });
+        return id;
+    }
 
-void EventBus::unsubscribe(const std::string &topic, EventHandlerId id) {
-	std::lock_guard<std::mutex> lk(mutex_);
-	auto it = handlers_.find(topic);
-	if (it == handlers_.end()) return;
-	auto &vec = it->second;
-	vec.erase(std::remove_if(vec.begin(), vec.end(), [id](auto &p){ return p.first == id; }), vec.end());
-	if (vec.empty()) handlers_.erase(it);
-}
+    void EventBus::unsubscribe(std::string_view topic, EventHandlerId id) {
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = handlers_.find(std::string(topic));
+        if (it == handlers_.end()) return;
 
-void EventBus::publish(const std::string &topic) {
-	std::vector<std::function<void()>> toCall;
-	{
-		std::lock_guard<std::mutex> lk(mutex_);
-		auto it = handlers_.find(topic);
-		if (it == handlers_.end()) return;
-		for (auto &p : it->second) toCall.push_back(p.second);
-	}
-	for (auto &h : toCall) {
-		if (h) h();
-	}
-}
+        auto& vec = it->second;
+        vec.erase(std::remove_if(vec.begin(), vec.end(), [id](const Subscription& sub) {
+            return sub.id == id;
+            }), vec.end());
 
-} // namespace core
+        if (vec.empty()) handlers_.erase(it);
+    }
+
+    void EventBus::publish(std::string_view topic, std::string_view data) {
+        std::vector<IEventHandler*> toCall;
+        {
+            std::shared_lock<std::shared_mutex> lock(mutex_);
+            auto it = handlers_.find(std::string(topic));
+            if (it != handlers_.end()) {
+                toCall.reserve(it->second.size());
+                for (const auto& sub : it->second) {
+                    toCall.push_back(sub.handler);
+                }
+            }
+        } // Освобождаем лок перед вызовами во избежание Deadlocks
+
+        for (auto* handler : toCall) {
+            if (handler) handler->onEvent(data); // Вызов через vtable уходит в плагин
+        }
+    }
+}

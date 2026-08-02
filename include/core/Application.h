@@ -1,30 +1,28 @@
-// include/core/Application.h
+// include/core/Application.h — Версия v0.2.0 (Interface-Based Standard)
 #pragma once
-
-#include "LibraryLoader.h"
-#include "ServiceManager.h"
-#include "EventBus.h"
+#include <vector>
+#include <string>
 #include <memory>
+#include <filesystem>
+#include "ServiceManager.h"
+#include "LibraryLoader.h"
 
 namespace core {
+    class Application {
+    private:
+        ServiceManager m_services;
+        std::unique_ptr<LibraryLoader> m_loader;
+        std::vector<std::string> m_startPlugins;
+        bool m_running = false;
 
-	class Application {
-	public:
-		Application();
-		~Application();
+        void mainLoop();
+        void discoverPluginsInPath(const std::filesystem::path& searchPath);
 
-		int run();
-		void stop();
+    public:
+        Application();
+        ~Application();
 
-		LibraryLoader& libraryLoader() { return libraryLoader_; }
-		ServiceManager& services() { return services_; }
-		std::shared_ptr<EventBus> eventBus() { return eventBus_; }
-
-	private:
-		bool running_ = false;
-		LibraryLoader libraryLoader_;
-		ServiceManager services_;
-		std::shared_ptr<EventBus> eventBus_;
-	};
-
-} // namespace core
+        int run();
+        void stop();
+    };
+}

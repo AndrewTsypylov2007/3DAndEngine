@@ -1,140 +1,82 @@
+// src/core/Application.cpp — Версия v0.2.0 (Умная слепая загрузка)
+
 #include "../../include/core/Application.h"
+#include "../../include/core/EventBus.h"
+#include "../../include/core/ConfigService.h"
 #include <iostream>
 #include <thread>
 #include <chrono>
-#include "../../include/core/LoggerService.h"
-#include "../../include/core/ConfigService.h"
-#include "../../include/core/TaskScheduler.h"
 
 namespace core {
 
-	Application::Application() {
-		// Гарантированно создаем шину событий при старте объекта ядра
-		eventBus_ = std::make_shared<core::EventBus>();
-	}
+    Application::Application() {
+        m_services.registerService(std::make_unique<EventBus>());
+        m_services.registerService(std::make_unique<ConfigService>(m_services));
+        m_loader = std::make_unique<LibraryLoader>(m_services);
+    }
 
-	Application::~Application() = default;
+    Application::~Application() { stop(); }
 
-	int Application::run() {
-		running_ = true;
-		std::cerr << "engine_core starting...\n";
-		std::cerr << "[Core] Application starting...\n";
+    void Application::discoverPluginsInPath(const std::filesystem::path& searchPath) {
+        try {
+            if (!std::filesystem::exists(searchPath)) return;
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(searchPath)) {
+                if (entry.is_regular_file() && entry.path().extension() == ".dll") {
+                    std::string fullPath = entry.path().string();
+                    std::string fileName = entry.path().filename().string();
 
-		// 1. РЕГИСТРАЦИЯ БАЗОВЫХ СЕРВИСОВ
-		auto configSvc = std::make_shared<core::ConfigService>();
-		services_.registerService<core::ConfigService>(configSvc);
+                    // ПРАВИЛО v0.2.0: Пропускаем всё, что не содержит "_plugin" в имени.
+                    // Это мгновенно отсечет fmt.dll, spdlog.dll, engine_core_lib и системный мусор Windows!
+                    if (fileName.find("_plugin") == std::string::npos) {
+                        continue;
+                    }
 
-		// Попытка загрузить конфиг
-		bool configLoaded = configSvc->loadFromFile("config.json");
+                    // Дополнительная защита на всякий случай
+                    if (fileName.find("api-ms") != std::string::npos ||
+                        fileName.find("vcruntime") != std::string::npos ||
+                        fileName.find("3DAndEngine") != std::string::npos ||
+                        fileName.find("engine_core") != std::string::npos) {
+                        continue;
+                    }
 
-		// Дефолтные настройки состава ядра
-		bool enableLogger = true;
-		bool enableScheduler = true;
-		bool enableDiscovery = true;
+                    std::cout << "[Core] Discovery: Attempting to load " << fileName << std::endl;
+                    if (m_loader->loadPlugin(fullPath)) {
+                        m_startPlugins.push_back(fullPath);
+                    }
+                }
+            }
+        }
+        catch (...) {}
+    }
 
-		if (configLoaded) {
-			try {
-				auto j = configSvc->json();
-				auto coreBlock = (j.contains("core") && j["core"].is_object()) ? j["core"] : j;
 
-				enableLogger = coreBlock.value("enable_logger", true);
-				enableScheduler = coreBlock.value("enable_scheduler", true);
-				enableDiscovery = coreBlock.value("enable_plugin_discovery", true);
-			}
-			catch (...) {
-				// При ошибках парсинга остаемся на безопасных значениях
-			}
-		}
+    int Application::run() {
+        std::cout << "[Core] Runtime environment v0.2.0 initialized." << std::endl;
+        m_services.startAll();
 
-		// 2. РЕГИСТРАЦИЯ ОПЦИОНАЛЬНЫХ СИСТЕМ
-		if (enableLogger) {
-			auto loggerSvc = std::make_shared<core::LoggerService>();
-			services_.registerService<core::LoggerService>(loggerSvc);
-		}
+        // Прочесываем папки рекурсивно на любую глубину (как ты и просил)
+        discoverPluginsInPath("plugins");
+        if (m_startPlugins.empty()) discoverPluginsInPath(".");
 
-		if (enableScheduler) {
-			auto sched = std::make_shared<core::TaskScheduler>();
-			services_.registerService<core::TaskScheduler>(sched);
-		}
+        m_running = true;
+        mainLoop();
+        return 0;
+    }
 
-		// ==============================================================================
-		// КЛЮЧЕВОЙ МОМЕНТ ОБНОВЛЕНИЯ v0.1.1:
-		// Регистрируем Шину Событий в ServiceManager. 
-		// Теперь плагины найдут её через services.getServiceByName("EventBus")
-		// ==============================================================================
-		services_.registerService<core::EventBus>(eventBus_);
+    void Application::mainLoop() {
+        auto* bus = static_cast<EventBus*>(m_services.getServiceByName("EventBus"));
+        while (m_running) {
+            if (bus) bus->publish("tick");
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+    }
 
-		// Запускаем граф зависимостей (выполняет init, start, postStart)
-		services_.startAll();
-
-		auto lg = services_.getService<core::LoggerService>();
-		if (lg) lg->info("Application services started successfully");
-
-		// 3. ЗАГРУЗКА ПЛАГИНОВ (DLL)
-		int foundDlls = 0;
-		if (enableDiscovery) {
-			std::vector<std::string> libraryPaths;
-			if (configLoaded) {
-				try {
-					auto j = configSvc->json();
-					if (j.contains("plugin_paths") && j["plugin_paths"].is_array()) {
-						for (auto& p : j["plugin_paths"]) {
-							if (p.is_string()) libraryPaths.push_back(p.get<std::string>());
-						}
-					}
-				}
-				catch (...) { libraryPaths.clear(); }
-			}
-
-			// Если список пуст, ищем в стандартной папке
-			if (libraryPaths.empty()) {
-				libraryPaths.push_back("plugins");
-			}
-
-			// Обновленный вызов discoverAndLoad с передачей контекста сервисов
-			for (auto& path : libraryPaths) {
-				foundDlls += libraryLoader_.discoverAndLoad(path, services_);
-			}
-		}
-
-		if (foundDlls > 0) {
-			if (lg) lg->info("Dynamic libraries loaded into memory: " + std::to_string(foundDlls));
-			// Инициализируем все плагины (вызов InitializeModule)
-			libraryLoader_.initializeAll(services_);
-		}
-
-		// 4. ГЛАВНЫЙ ЦИКЛ ПРИЛОЖЕНИЯ
-		int ticks = 0;
-		while (running_) {
-			// Ограничиваем частоту "тиков" (примерно 60-100Гц для системных нужд)
-			std::this_thread::sleep_for(std::chrono::milliseconds(16));
-			++ticks;
-
-			// Рассылка системного события tick. 
-			// Плагины (Input, Window) поймают его и обновят свое состояние.
-			if (eventBus_) eventBus_->publish("tick");
-
-			// Логируем каждый 100-й тик, чтобы не забивать консоль
-			if (ticks % 100 == 0 && lg) {
-				lg->info("System heartbeat: tick " + std::to_string(ticks));
-			}
-
-			// Ограничитель времени жизни (в будущем заменим на проверку активных окон)
-			if (ticks > 100000) break;
-		}
-
-		// 5. КОРРЕКТНОЕ ЗАВЕРШЕНИЕ (LIFO ORDER)
-		if (lg) lg->info("Shutting down engine_core...");
-
-		libraryLoader_.unloadAll();
-		services_.stopAll();
-
-		return 0;
-	}
-
-	void Application::stop() {
-		running_ = false;
-	}
-
-} // namespace core
-
+    void Application::stop() {
+        if (!m_running) return;
+        m_running = false;
+        for (auto it = m_startPlugins.rbegin(); it != m_startPlugins.rend(); ++it) {
+            m_loader->unloadPlugin(*it);
+        }
+        m_services.stopAll();
+    }
+}

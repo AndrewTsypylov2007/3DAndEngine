@@ -1,36 +1,39 @@
-// src/core/ConfigService.cpp
+// src/core/ConfigService.cpp — Версия v0.2.0
 #include "../../include/core/ConfigService.h"
+#include "../../include/core/ServiceManager.h"
 #include <fstream>
 #include <iostream>
 
 namespace core {
+    ConfigService::ConfigService(ServiceManager& services) : services_(services) {}
 
-	ConfigService::ConfigService() = default;
-	ConfigService::~ConfigService() = default;
+    // Исправлено: теперь метод init четко привязан к интерфейсу v0.2.0
+    bool ConfigService::init(IServiceManager&) {
+        return reloadConfig();
+    }
 
-	void ConfigService::start() {
-		// Ничего не делаем, так как Application загружает конфиг до старта всех сервисов
-	}
+    void ConfigService::start() {}
+    void ConfigService::stop() {}
 
-	void ConfigService::stop() {
-		// Очистка ресурсов, если потребуется
-	}
+    // ФИКС: Возвращаем полноценную реализацию метода класса!
+    bool ConfigService::reloadConfig() {
+        std::ifstream file(m_configPath);
+        if (!file.is_open()) {
+            std::cerr << "[Core::Config] Warning: Cannot open " << m_configPath << std::endl;
+            return false;
+        }
+        try {
+            file >> m_currentConfig;
+            file.close();
+            return true;
+        }
+        catch (...) {
+            std::cerr << "[Core::Config] Critical parsing error in json file." << std::endl;
+            return false;
+        }
+    }
 
-	bool ConfigService::loadFromFile(const std::string& path) {
-		std::ifstream in(path);
-		if (!in.is_open()) {
-			std::cerr << "[ConfigService] Could not open config file: " << path << "\n";
-			return false;
-		}
-		try {
-			in >> json_;
-			loadedPath_ = path;
-			return true;
-		}
-		catch (const std::exception& e) {
-			std::cerr << "[ConfigService] JSON parse error: " << e.what() << "\n";
-			return false;
-		}
-	}
-
-} // namespace core
+    nlohmann::json ConfigService::getConfig() const {
+        return m_currentConfig;
+    }
+}

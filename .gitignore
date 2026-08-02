@@ -1,71 +1,22 @@
-# ==============================================================================
-# 3DAndEngine — .gitignore (Production Ready)
-# ==============================================================================
-
-# Build / output (Рекурсивное игнорирование для ядра и всех внешних DLL)
+# Скомпилированные бинарники и библиотеки
 build/
 bin/
-dist/
+lib/
 out/
 x64/
 Debug/
 Release/
 
-# Modern vcpkg (Манифестный режим сборки локально)
-vcpkg_installed/
-.cache/
-
-# Classic vcpkg (На всякий случай для локальных старых папок)
-vcpkg/installed/
-vcpkg/packages/
-vcpkg/buildtrees/
-vcpkg/downloads/
-vcpkg/archives/
-
-# Visual Studio / MSVC
+# Временные файлы Visual Studio
 .vs/
-*.vcxproj
-*.vcxproj.user
-*.vcxproj.filters
-*.sln
-*.suo
 *.user
-*.userosscache
-*.VC.db
-*.VC.VC.opendb
-*.ilk
-*.exp
+*.suo
+*.sln
+*.vcxproj
+*.filters
 
-# CMake internal cache
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-Testing/
+# Зависимости vcpkg
+vcpkg_installed/
 
-# IDEs (VS Code & CLion / JetBrains)
-.idea/
-.vscode/
-*.swp
-
-# Logs & Runtime Environment
-*.log
-config.json.user
-
-# OS generated files
-.DS_Store
-Thumbs.db
-
-# Compiled Binaries & Symbols (Исключаем случайное попадание бинарников в гит)
-*.exe
-*.dll
-*.so
-*.dylib
-*.lib
-*.a
-*.obj
-*.o
-*.pdb
-
-# CI/CD Release Artifacts
-release-artifacts-*.zip
+# Локальные файлы конфигурации рантайма
+config.json

@@ -145,6 +145,7 @@
     <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\core\IEventBus.h" />
     <ClInclude Include="include\core\Application.h" />
     <ClInclude Include="include\core\ConfigService.h" />
     <ClInclude Include="include\core\EventBus.h" />
@@ -154,7 +155,10 @@
     <ClInclude Include="include\core\SemVer.h" />
     <ClInclude Include="include\core\ServiceManager.h" />
     <ClInclude Include="include\core\TaskScheduler.h" />
+    <ClInclude Include="include\core\InputEvent.h" />
+    <ClInclude Include="include\core\IServiceManager.h" />
     <ClInclude Include="tests\TestHarness.h" />
+    <ClInclude Include="include\core\WindowHandle.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\core\Application.cpp" />

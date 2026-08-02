@@ -1,33 +1,32 @@
+// include/core/EventBus.h — Версия v0.2.0 (Реализация Ядра)
 #pragma once
-#include <functional>
+#include "IEventBus.h"
+#include <map>
 #include <string>
-#include <unordered_map>
 #include <vector>
-#include <mutex>
-#include <cstdint>
-#include "IService.h"
+#include <shared_mutex>
 
 namespace core {
-
-    using EventHandlerId = std::uint64_t;
-
-    class EventBus : public IService {
-    public:
-        EventBus() = default;
-        virtual ~EventBus() = default;
-
-        // Реализация методов IService
-        const char* getServiceName() const override { return "EventBus"; }
-        bool init(ServiceManager& services) override { return true; }
-
-        EventHandlerId subscribe(const std::string& topic, std::function<void()> handler);
-        void unsubscribe(const std::string& topic, EventHandlerId id);
-        void publish(const std::string& topic);
-
+    class EventBus : public IEventBus {
     private:
-        std::mutex mutex_;
-        std::unordered_map<std::string, std::vector<std::pair<EventHandlerId, std::function<void()>>>> handlers_;
-        EventHandlerId nextId_{ 1 };
-    };
+        struct Subscription {
+            EventHandlerId id;
+            IEventHandler* handler;
+        };
 
+        std::map<std::string, std::vector<Subscription>> handlers_;
+        EventHandlerId nextId_ = 1;
+        mutable std::shared_mutex mutex_;
+
+    public:
+        const char* getServiceName() const override { return "EventBus"; }
+
+        bool init(IServiceManager&) override { return true; }
+        void start() override {}
+        void stop() override {}
+
+        EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override;
+        void unsubscribe(std::string_view topic, EventHandlerId id) override;
+        void publish(std::string_view topic, std::string_view data = "") override;
+    };
 }
