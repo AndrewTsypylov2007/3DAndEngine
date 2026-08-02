@@ -1,6 +1,6 @@
-// include/core/EventBus.h — Версия v0.2.0 (Crossplatform Sync)
+// include/core/EventBus.h — Версия v0.2.0 (Strict POSIX Sync)
 #pragma once
-#include "IEventBus.h"
+#include "IEventBus.h" // Подключает определение EventHandlerId
 #include <map>
 #include <string>
 #include <vector>
@@ -10,14 +10,13 @@ namespace core {
 
     class EventBus : public IEventBus {
     private:
-        // Структура обязана иметь ровно эти поля!
         struct Subscription {
-            EventHandlerId id;
+            core::EventHandlerId id; // ФИКС: Явно пишем пространство имен
             IEventHandler* handler;
         };
 
         std::map<std::string, std::vector<Subscription>> handlers_;
-        EventHandlerId nextId_ = 1;
+        core::EventHandlerId nextId_ = 1; // ФИКС
         mutable std::shared_mutex mutex_;
 
     public:
@@ -27,8 +26,8 @@ namespace core {
         void start() override {}
         void stop() override {}
 
-        EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override;
-        void unsubscribe(std::string_view topic, EventHandlerId id) override;
+        core::EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override; // ФИКС
+        void unsubscribe(std::string_view topic, core::EventHandlerId id) override; // ФИКС
         void publish(std::string_view topic, std::string_view data = "") override;
     };
 }

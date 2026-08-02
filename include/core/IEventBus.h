@@ -1,12 +1,13 @@
-// include/core/IEventBus.h — Версия v0.2.0 (Чистый C++ Интерфейс)
+// include/core/IEventBus.h — Версия v0.2.0 (Strict POSIX Sync)
 #pragma once
 #include "IService.h"
 #include <string_view>
 
 namespace core {
+
+    // ГАРАНТИЯ ТИПА: Объявлен внутри namespace core
     using EventHandlerId = uint64_t;
 
-    // Класс-слушатель. Плагин наследуется от него для безопасного ABI-вызова
     class IEventHandler {
     public:
         virtual ~IEventHandler() = default;

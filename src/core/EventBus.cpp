@@ -1,11 +1,10 @@
-// src/core/EventBus.cpp — Версия v0.2.0 (Crossplatform Sync)
+// src/core/EventBus.cpp — Версия v0.2.0 (Strict POSIX Sync)
 #include "../../include/core/EventBus.h"
 #include <algorithm>
-#include <mutex> // ФИКС ДЛЯ LINUX: Добавили для std::unique_lock!
+#include <mutex>
 
 namespace core {
 
-    // ФИКС: Явно пишем core::EventHandlerId, чтобы тип распознался в глобальной области
     core::EventHandlerId EventBus::subscribe(std::string_view topic, IEventHandler* handler) {
         if (!handler) return 0;
         std::unique_lock<std::shared_mutex> lock(mutex_);
@@ -38,7 +37,7 @@ namespace core {
                     toCall.push_back(sub.handler);
                 }
             }
-        } // Освобождаем лок перед вызовами
+        }
 
         for (auto* handler : toCall) {
             if (handler) handler->onEvent(data);
