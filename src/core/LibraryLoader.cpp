@@ -1,8 +1,13 @@
-// src/core/LibraryLoader.cpp — Версия v0.1.5
+// src/core/LibraryLoader.cpp — Версия v0.2.0 (True Crossplatform)
 #include "../../include/core/LibraryLoader.h"
 #include "../../include/core/ServiceManager.h"
-#include <windows.h>
 #include <iostream>
+
+#if defined(_WIN32) || defined(_WIN64)
+#include <windows.h> // Подключаем ТОЛЬКО на Windows
+#else
+#include <dlfcn.h>   // Подключаем на Linux, macOS и консолях (POSIX стандарт)
+#endif
 
 namespace core {
 
@@ -10,42 +15,74 @@ namespace core {
     LibraryLoader::~LibraryLoader() { unloadAll(); }
 
     bool LibraryLoader::loadPlugin(const std::string& path) {
-        if (m_loadedModules.find(path) != m_loadedModules.end()) {
-            unloadPlugin(path);
-        }
+        void* hModule = nullptr;
 
-        HMODULE hModule = LoadLibraryA(path.c_str());
+        // 1. Загрузка библиотеки в зависимости от ОС
+#if defined(_WIN32) || defined(_WIN64)
+        hModule = (void*)LoadLibraryA(path.c_str());
+#else
+        hModule = dlopen(path.c_str(), RTLD_NOW); // POSIX аналог LoadLibrary
+#endif
+
         if (!hModule) {
-            DWORD err = GetLastError(); // Точка 6: Логируем системный код сбоя OS
-            std::cerr << "[Core::Loader] CRITICAL: Failed to load DLL: " << path << " | System Error Code: " << err << std::endl;
+            std::cerr << "[Core::Loader] CRITICAL: Failed to load module: " << path << std::endl;
+#if !defined(_WIN32) && !defined(_WIN64)
+            std::cerr << "[Core::Loader] OS Error: " << dlerror() << std::endl; // Вывод ошибки Linux/macOS
+#endif
             return false;
         }
 
-        typedef void (*InitFunc)(ServiceManager&);
-        InitFunc initializeModule = (InitFunc)GetProcAddress(hModule, "InitializeModule");
-        if (!initializeModule) {
-            std::cerr << "[Core::Loader] InitializeModule export missing in " << path << std::endl;
-            FreeLibrary(hModule);
+        // 2. Поиск фабричной функции CreatePlugin
+        typedef core::IService* (*CreatePluginFunc)();
+        CreatePluginFunc createPlugin = nullptr;
+
+#if defined(_WIN32) || defined(_WIN64)
+        createPlugin = (CreatePluginFunc)GetProcAddress((HMODULE)hModule, "CreatePlugin");
+#else
+        createPlugin = (CreatePluginFunc)dlsym(hModule, "CreatePlugin"); // POSIX аналог GetProcAddress
+#endif
+
+        if (!createPlugin) {
+            std::cerr << "[Core::Loader] CRITICAL: Export 'CreatePlugin' missing in " << path << std::endl;
+#if defined(_WIN32) || defined(_WIN64)
+            FreeLibrary((HMODULE)hModule);
+#else
+            dlclose(hModule);
+#endif
             return false;
         }
 
-        m_loadedModules[path] = static_cast<void*>(hModule);
-        initializeModule(services_);
-        return true;
+        // 3. Активация плагина и безопасная упаковка памяти в кучу ядра
+        core::IService* rawPlugin = createPlugin();
+        if (rawPlugin) {
+            m_loadedModules[path] = hModule;
+            services_.registerService(std::unique_ptr<core::IService>(rawPlugin));
+            return true;
+        }
+
+        return false;
     }
 
     void LibraryLoader::unloadPlugin(const std::string& path) {
         auto it = m_loadedModules.find(path);
-        if (it == m_loadedModules.end()) return;
-        FreeLibrary(static_cast<HMODULE>(it->second));
-        m_loadedModules.erase(it);
+        if (it != m_loadedModules.end()) {
+#if defined(_WIN32) || defined(_WIN64)
+            FreeLibrary((HMODULE)it->second);
+#else
+            dlclose(it->second);
+#endif
+            m_loadedModules.erase(it);
+        }
     }
 
     void LibraryLoader::unloadAll() {
-        auto it = m_loadedModules.begin();
-        while (it != m_loadedModules.end()) {
-            FreeLibrary(static_cast<HMODULE>(it->second));
-            it = m_loadedModules.erase(it);
+        for (auto& pair : m_loadedModules) {
+#if defined(_WIN32) || defined(_WIN64)
+            FreeLibrary((HMODULE)pair.second);
+#else
+            dlclose(pair.second);
+#endif
         }
+        m_loadedModules.clear();
     }
 }
