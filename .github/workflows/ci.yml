@@ -19,8 +19,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Экшены настройки CMake удалены. Используем нативный CMake из системы.
-
     - name: Set up Developer Command Prompt for MSVC
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
@@ -63,8 +61,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Экшены настройки CMake удалены. Используем нативный CMake из системы.
-
       - name: Set up Developer Command Prompt for MSVC
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
@@ -84,34 +80,32 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK
+          # 1. Создаем структуру папок дистрибутива SDK v0.2.0 (Чистый интерфейсный стандарт)
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
-          New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 2. КОПИРОВАНИЕ ИЗ ЕДИНОЙ ПАПКИ ВЫВОДА:
+          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА:
           if (Test-Path "build/bin/Release") {
               Copy-Item -Path "build/bin/Release/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           } elseif (Test-Path "build/bin") {
               Copy-Item -Path "build/bin/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           }
           
-          # Копируем .lib файлы импорта из папки lib
-          if (Test-Path "build/lib/Release") {
-              Copy-Item -Path "build/lib/Release/*.lib" -Destination "dist/lib/" -Force -ErrorAction SilentlyContinue
-          } elseif (Test-Path "build/lib") {
-              Copy-Item -Path "build/lib/*.lib" -Destination "dist/lib/" -Force -ErrorAction SilentlyContinue
-          }
+          # 3. Чистим мусор компиляции Windows (.obj, .ilk) и Linux/macOS (.o), оставляя только бинарники
+          Get-ChildItem -Path "dist/bin" -File | Where-Object { 
+              $_.Extension -eq '.obj' -or 
+              $_.Extension -eq '.o' -or 
+              $_.Extension -eq '.ilk' -or 
+              $_.Extension -eq '.pdb' -or 
+              $_.Extension -eq '.exp' 
+          } | Remove-Item -Force -ErrorAction SilentlyContinue
           
-          # 3. Чистим мусор компиляции, оставляя только чистые исполняемые файлы и DLL
-          Get-ChildItem -Path "dist/bin" -File | Where-Object { $_.Extension -in '.obj', '.ilk', '.pdb', '.exp' } | Remove-Item -Force
-          
-          # 4. Копируем заголовочные файлы инфраструктуры для разработки модулей
+          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v0.2.0
           if (Test-Path "include/core") {
               Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
           }
           
-          # 5. Копируем файл настроек
+          # 5. Копируем файл настроек, если он существует в корне
           if (Test-Path "config.json") {
               Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
           }
