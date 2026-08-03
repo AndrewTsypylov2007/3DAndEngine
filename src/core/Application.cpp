@@ -1,4 +1,4 @@
-// src/core/Application.cpp — Версия v0.2.0 (Исправление ошибок: Многопоточный рантайм)
+// src/core/Application.cpp — Версия v0.2.0 Stable Sync
 #include "../../include/core/Application.h"
 #include "../../include/core/ServiceManager.h"
 #include "../../include/core/EventBus.h"
@@ -10,16 +10,19 @@
 
 namespace core {
 
+    // Сигнатура 1: Конструктор
     Application::Application() {
         m_services.registerService(std::make_unique<EventBus>());
         m_services.registerService(std::make_unique<ConfigService>(m_services));
         m_loader = std::make_unique<LibraryLoader>(m_services);
     }
 
-    Application::~Application() {
-        stop();
+    // Сигнатура 2: Деструктор
+    Application::~Application() { 
+        stop(); 
     }
 
+    // Сигнатура 3: discoverPluginsInPath с правильным типом std::filesystem::path
     void Application::discoverPluginsInPath(const std::filesystem::path& searchPath) {
         try {
             if (!std::filesystem::exists(searchPath)) return;
@@ -28,12 +31,12 @@ namespace core {
                     std::string fullPath = entry.path().string();
                     std::string fileName = entry.path().filename().string();
 
-                    if (fileName.find("api-ms") != std::string::npos ||
+                    if (fileName.find("api-ms") != std::string::npos || 
                         fileName.find("vcruntime") != std::string::npos ||
                         fileName.find("3DAndEngine") != std::string::npos ||
                         fileName.find("glfw") != std::string::npos ||
                         fileName.find("fmt") != std::string::npos) {
-                        continue;
+                        continue; 
                     }
 
                     std::cout << "[Core] Discovery: Attempting to load " << fileName << std::endl;
@@ -42,14 +45,13 @@ namespace core {
                     }
                 }
             }
-        }
-        catch (...) {}
+        } catch (...) {}
     }
 
+    // Сигнатура 4: Точка запуска рантайма
     int Application::run() {
         std::cout << "[Core] Runtime environment v0.2.0 (Multithreaded Fix) initialized." << std::endl;
 
-        // 1. Сначала загружаем плагины в адресное пространство процесса
         discoverPluginsInPath("plugins");
         if (m_startPlugins.empty()) {
             discoverPluginsInPath(".");
@@ -57,41 +59,36 @@ namespace core {
 
         m_running = true;
 
-        // 2. АСИНХРОННОСТЬ: Запускаем генератор системных тиков в ОТДЕЛЬНОМ потоке логики!
-        // Он будет крутиться на фоне и слать "tick", не блокируя и не подвешивая графику
         std::thread logicThread([this]() {
             std::cout << "[Core] Worker thread for engine logic spawned successfully." << std::endl;
             this->mainLoop();
-            });
+        });
 
-        // 3. ХИДЖЕКИНГ: Запускаем каскадный старт всех систем в ГЛАВНОМ потоке ОС.
-        // Очередь дойдет до WindowPluginService, он заберет этот поток под свой непрерывный 
-        // цикл опроса сообщений. На Windows это единственный способ убрать плашку "Не отвечает".
-        m_services.startAll();
+        m_services.startAll(); 
 
-        // Когда оконный цикл плагина завершится (пользователь закроет окно), управление вернется сюда
         std::cout << "[Core] Window closed. Halting background thread..." << std::endl;
-        m_running = false;
-
+        m_running = false; 
+        
         if (logicThread.joinable()) {
-            logicThread.join(); // Безопасно дожидаемся остановки потока тиков
+            logicThread.join();
         }
 
         stop();
         return 0;
     }
 
+    // Сигнатура 5: Генератор системных тиков
     void Application::mainLoop() {
         auto* bus = static_cast<EventBus*>(m_services.getServiceByName("EventBus"));
         while (m_running) {
             if (bus) {
                 bus->publish("tick");
             }
-            // Честная частота обновления логики (60 Гц) вне зависимости от скорости рендеринга!
-            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            std::this_thread::sleep_for(std::chrono::milliseconds(16)); 
         }
     }
 
+    // Сигнатура 6: Метод принудительной остановки
     void Application::stop() {
         std::cout << "[Core] Stopping engine runtime. Unloading modules..." << std::endl;
         for (auto it = m_startPlugins.rbegin(); it != m_startPlugins.rend(); ++it) {

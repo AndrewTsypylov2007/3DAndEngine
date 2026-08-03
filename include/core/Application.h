@@ -8,6 +8,7 @@
 #include "LibraryLoader.h"
 
 namespace core {
+
     class Application {
     private:
         ServiceManager m_services;
@@ -16,6 +17,8 @@ namespace core {
         bool m_running = false;
 
         void mainLoop();
+
+        // ФИКС: Сигнатура должна строго принимать const std::filesystem::path&
         void discoverPluginsInPath(const std::filesystem::path& searchPath);
 
     public:
@@ -23,6 +26,8 @@ namespace core {
         ~Application();
 
         int run();
+
+        // ФИКС: Метод stop() обязан быть публичным, чтобы деструктор или внешние системы могли его вызвать
         void stop();
     };
 }
