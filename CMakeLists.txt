@@ -5,11 +5,13 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Глобальные флаги для AAA-разработки (максимальные предупреждения компилятора)
+# Глобальные флаги для AAA-разработки
 if(MSVC)
-    add_compile_options(/W4 /WX /permissive- /wd4201)
+    # /wd4189 - подавляет "инициализированная, но не используемая переменная" в тестах
+    add_compile_options(/W4 /WX /permissive- /wd4201 /wd4189)
 else()
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    # -Wno-unused-variable - чтобы тесты в Release не ломали сборку на Ubuntu/Mac
+    add_compile_options(-Wall -Wextra -Wpedantic -Werror -Wno-unused-variable)
 endif()
 
 # Главное заголовочное ядро движка
@@ -20,14 +22,12 @@ if(NOT WIN32)
     target_link_libraries(3DAndEngineCore INTERFACE ${CMAKE_DL_LIBS})
 endif()
 
-# ==============================================================================
-# АВТОМАТИЧЕСКИЙ СБОР ИСХОДНИКОВ (Решает проблему регистра букв и путей в CI)
-# ==============================================================================
+# Автоматический сбор исходников
 file(GLOB_RECURSE ENGINE_SOURCES 
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
 )
 
-# Собираем красивый исполняемый файл на основе всех найденных исходников
+# Создание исполняемого файла
 add_executable(3DAndEngine ${ENGINE_SOURCES})
 target_link_libraries(3DAndEngine PRIVATE 3DAndEngineCore)

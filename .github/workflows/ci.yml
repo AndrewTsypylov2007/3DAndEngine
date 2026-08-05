@@ -38,9 +38,11 @@ jobs:
     - name: Run Embedded Tests
       shell: bash
       run: |
-        if [ "${{ matrixos }}" = "windows-latest" ]; then
+        # Исправлена опечатка в matrix.os и добавлен поиск файла
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
           ./build/Release/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/3DAndEngine.exe
         else
+          chmod +x ./build/3DAndEngine || true
           ./build/3DAndEngine || ./build/bin/3DAndEngine
         fi
 
@@ -68,28 +70,36 @@ jobs:
       - name: Package SDK v2.0 (Strict White-list)
         shell: pwsh
         run: |
-          # 1. Полная очистка временных папок упаковки
+          # 1. Полная очистка
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. Поиск и копирование ТОЛЬКО исполняемого файла
+          # 2. Поиск и копирование бинарника (улучшенный поиск)
+          $found = $false
           $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
           foreach ($Path in $BinSearchPaths) {
               if (Test-Path $Path) {
+                  Write-Host "Found binary at: $Path"
                   Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
+                  $found = $true
                   break
               }
           }
+          if (-not $found) { Write-Error "Core binary NOT found in any search path!" }
           
-          # 3. Копируем ТОЛЬКО разрешенные новые заголовочные файлы (Белый список)
+          # 3. Копируем только разрешенные заголовки
           $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "Application.h", "Platform.h", "PluginLoader.h")
           foreach ($Header in $AllowedHeaders) {
               $Src = "include/core/$Header"
-              if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }
+              if (Test-Path $Src) { 
+                  Copy-Item $Src -Destination "dist/include/core/" -Force 
+              } else {
+                  Write-Warning "Header missing: $Src"
+              }
           }
           
-          # 4. Финальная упаковка в ZIP
+          # 4. Финальная упаковка
           Set-Location dist
           cmake -E tar cfv ../3DAndEngine-${{ matrix.os }}.zip --format=zip .
 
