@@ -13,8 +13,8 @@ struct Transform {
 
 void test_constexpr_hashing() {
     using namespace core;
-    constexpr uint32_t hash1 = core::hash_str("physics/collision");
-    constexpr uint32_t hash2 = "physics/collision"_id;
+    [[maybe_unused]] constexpr uint32_t hash1 = core::hash_str("physics/collision");
+    [[maybe_unused]] constexpr uint32_t hash2 = "physics/collision"_id;
     assert(hash1 == hash2);
     std::cout << "[Test Passed] Hashing works.\n";
 }
@@ -28,7 +28,7 @@ void test_ecs_dense_arrays() {
     registry.addComponent<Transform>(e1, Transform{ 10.0f, 20.0f });
     registry.addComponent<Transform>(e2, Transform{ 30.0f, 40.0f });
 
-    Transform* t1 = registry.getComponent<Transform>(e1);
+    [[maybe_unused]] Transform* t1 = registry.getComponent<Transform>(e1);
     assert(t1 != nullptr);
     assert(t1->x == 10.0f);
 

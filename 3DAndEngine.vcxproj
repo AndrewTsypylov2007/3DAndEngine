@@ -156,7 +156,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="tests\UnitTestsMain.cpp" />
+    <ClCompile Include="src\UnitTestsMain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".github\workflows\ci.yml" />

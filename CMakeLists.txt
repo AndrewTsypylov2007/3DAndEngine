@@ -20,9 +20,14 @@ if(NOT WIN32)
     target_link_libraries(3DAndEngineCore INTERFACE ${CMAKE_DL_LIBS})
 endif()
 
-# Собираем красивый исполняемый файл, содержащий и движок, и код тестов
-add_executable(3DAndEngine 
-    src/main.cpp 
-    src/UnitTestsMain.cpp
+# ==============================================================================
+# АВТОМАТИЧЕСКИЙ СБОР ИСХОДНИКОВ (Решает проблему регистра букв и путей в CI)
+# ==============================================================================
+file(GLOB_RECURSE ENGINE_SOURCES 
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
 )
+
+# Собираем красивый исполняемый файл на основе всех найденных исходников
+add_executable(3DAndEngine ${ENGINE_SOURCES})
 target_link_libraries(3DAndEngine PRIVATE 3DAndEngineCore)
