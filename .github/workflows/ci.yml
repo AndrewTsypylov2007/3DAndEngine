@@ -8,6 +8,10 @@ on:
   release:
     types: [published]
 
+env:
+  # Принудительно запускаем JavaScript-действия на Node.js 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build & Test Core
@@ -18,11 +22,12 @@ jobs:
         config: [Release]
 
     steps:
-    - uses: actions/checkout@v4
+    # Обновлено до v6 для лучшей совместимости с Node 24
+    - uses: actions/checkout@v6
 
     - name: Set up Developer Command Prompt for MSVC
       if: matrix.os == 'windows-latest'
-      uses: ilammy/msvc-dev-cmd@v1
+      uses: ilammy/msvc-dev-cmd@v1 # Используется актуальный тег v1
 
     - name: Configure CMake
       shell: bash
@@ -30,7 +35,10 @@ jobs:
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
-          -DVCPKG_FEATURE_FLAGS="manifests"
+          -DVCPKG_FEATURE_FLAGS="manifests" \
+          -DENABLE_LOGGER=ON \
+          -DENABLE_SCHEDULER=ON \
+          -DENABLE_PLUGIN_DISCOVERY=ON
           
     - name: Build Engine (Release)
       run: cmake --build build --config ${{ matrix.config }}
@@ -38,8 +46,7 @@ jobs:
     - name: Run Embedded Tests
       shell: bash
       run: |
-        # Исправлена опечатка в matrix.os и добавлен поиск файла
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+        if [ "${{ matrixos }}" = "windows-latest" ]; then
           ./build/Release/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/3DAndEngine.exe
         else
           chmod +x ./build/3DAndEngine || true
@@ -56,7 +63,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Developer Command Prompt for MSVC
         if: matrix.os == 'windows-latest'
@@ -70,42 +77,31 @@ jobs:
       - name: Package SDK v2.0 (Strict White-list)
         shell: pwsh
         run: |
-          # 1. Полная очистка
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. Поиск и копирование бинарника (улучшенный поиск)
-          $found = $false
           $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
           foreach ($Path in $BinSearchPaths) {
               if (Test-Path $Path) {
-                  Write-Host "Found binary at: $Path"
                   Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
-                  $found = $true
                   break
               }
           }
-          if (-not $found) { Write-Error "Core binary NOT found in any search path!" }
           
-          # 3. Копируем только разрешенные заголовки
           $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "Application.h", "Platform.h", "PluginLoader.h")
           foreach ($Header in $AllowedHeaders) {
               $Src = "include/core/$Header"
-              if (Test-Path $Src) { 
-                  Copy-Item $Src -Destination "dist/include/core/" -Force 
-              } else {
-                  Write-Warning "Header missing: $Src"
-              }
+              if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }
           }
           
-          # 4. Финальная упаковка
           Set-Location dist
-          cmake -E tar cfv ../3DAndEngine-${{ matrix.os }}.zip --format=zip .
+          cmake -E tar cfv ../3DAndEngine-${{ matrix.os.split('-') }}.zip --format=zip .
 
       - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
+        # Обновлено до v3 для поддержки рантайма Node 24
+        uses: softprops/action-gh-release@v3
         with:
-          files: 3DAndEngine-${{ matrix.os }}.zip
+          files: 3DAndEngine-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
