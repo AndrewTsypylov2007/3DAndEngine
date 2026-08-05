@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        config: [Debug]
+        config: [Release] # Тестируем сразу Release конфигурацию, как на ПК!
 
     steps:
     - uses: actions/checkout@v4
@@ -28,42 +28,15 @@ jobs:
       run: |
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
+          -DBUILD_TESTS=ON \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
           -DVCPKG_FEATURE_FLAGS="manifests"
           
     - name: Build Engine
       run: cmake --build build --config ${{ matrix.config }}
 
-    - name: Upload build artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: build-artifacts-${{ matrix.os }}-${{ matrix.config }}
-        path: |
-          build/**/bin/Debug/*
-          build/**/bin/*
-          build/**/3DAndEngine*
-
-    - name: Run embedded core unit tests
-      shell: bash
-      run: |
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          if [ -f "build/Debug/3DAndEngine.exe" ]; then
-            ./build/Debug/3DAndEngine.exe
-          elif [ -f "build/bin/Debug/3DAndEngine.exe" ]; then
-            ./build/bin/Debug/3DAndEngine.exe
-          else
-            find build -name "3DAndEngine.exe" -exec {} \;
-          fi
-        else
-          if [ -f "build/3DAndEngine" ]; then
-            ./build/3DAndEngine
-          elif [ -f "build/bin/3DAndEngine" ]; then
-            ./build/bin/3DAndEngine
-          else
-            find build -name "3DAndEngine" -type f -exec {} \;
-          fi
-        fi
+    - name: Run unit tests
+      run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
 
   release_build:
     name: Build and upload release artifacts
@@ -86,6 +59,7 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTS=OFF \
             -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_FEATURE_FLAGS="manifests"
 
@@ -95,22 +69,18 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK v2.0.0
+          # 1. Создаем структуру папок дистрибутива SDK v0.2.0 (Чистый интерфейсный стандарт)
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. Копирование исполняемых файлов ядра
-          if (Test-Path "build/Release") {
-              Copy-Item -Path "build/Release/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
-          } elseif (Test-Path "build/bin/Release") {
-              Copy-Item -Path "build/bin/Release/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА:
+          if (Test-Path "build/bin/Release") {
+              Copy-Item -Path "build/bin/Release/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           } elseif (Test-Path "build/bin") {
-              Copy-Item -Path "build/bin/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
-          } else {
-              Get-ChildItem -Path "build" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.DirectoryName -notmatch "CMakeFiles" } | Copy-Item -Destination "dist/bin/" -Force
+              Copy-Item -Path "build/bin/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           }
           
-          # 3. Чистим мусор компиляции
+          # 3. Чистим мусор компиляции Windows (.obj, .ilk, .pdb) и Linux/macOS (.o), оставляя только бинарники
           Get-ChildItem -Path "dist/bin" -File | Where-Object { 
               $_.Extension -eq '.obj' -or 
               $_.Extension -eq '.o' -or 
@@ -119,37 +89,17 @@ jobs:
               $_.Extension -eq '.exp' 
           } | Remove-Item -Force -ErrorAction SilentlyContinue
           
-          # ==============================================================================
-          # 4. ИСПРАВЛЕНО: Жесткий белый список заголовочных файлов ядра v2.0.0
-          # Копируем ТОЛЬКО новые AAA-файлы, полностью игнорируя старый мусор v1.0
-          # ==============================================================================
-          $AllowedHeaders = @(
-              "Types.h", 
-              "EcsRegistry.h", 
-              "EventBus.h", 
-              "JobSystem.h", 
-              "PluginContract.h", 
-              "Application.h", 
-              "Platform.h", 
-              "PluginLoader.h"
-          )
-
-          foreach ($Header in $AllowedHeaders) {
-              $SourcePath = "include/core/$Header"
-              if (Test-Path $SourcePath) {
-                  Copy-Item -Path $SourcePath -Destination "dist/include/core/" -Force
-                  Write-Output "[CI SDK Pack] Successfully whitelisted: $Header"
-              } else {
-                  Write-Warning "[CI SDK Pack WARNING] Expected header not found: $SourcePath"
-              }
+          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v0.2.0
+          if (Test-Path "include/core") {
+              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
           }
           
-          # 5. Копируем файл настроек, если он существует
+          # 5. Копируем файл настроек, если он существует в корне
           if (Test-Path "config.json") {
               Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
           }
           
-          # 6. Архивируем структуру кроссплатформенным архиватором CMake
+          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
           Set-Location dist
           cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
 
