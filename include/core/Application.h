@@ -6,6 +6,7 @@
 #include <vector>
 #include <algorithm>
 #include <chrono>
+#include <atomic> // ИСПРАВЛЕНО: Добавлен заголовок для атомиков
 
 namespace core {
 
@@ -14,7 +15,9 @@ namespace core {
         EcsRegistry     ecs_;
         EventBus        event_bus_;
         JobSystem       job_system_;
-        bool            is_running_ = false;
+
+        // ИСПРАВЛЕНО: Флаг сделан атомарным для предотвращения кэширования компилятором в Release
+        std::atomic<bool> is_running_{ false };
 
         std::vector<PluginInterface*> plugins_;
 
@@ -34,11 +37,14 @@ namespace core {
 
         void run() {
             job_system_.initialize();
-            is_running_ = true;
+
+            // ИСПРАВЛЕНО: Установка флага с барьером памяти release
+            is_running_.store(true, std::memory_order_release);
 
             auto last_time = std::chrono::high_resolution_clock::now();
 
-            while (is_running_) {
+            // ИСПРАВЛЕНО: Потокобезопасное чтение с барьером acquire
+            while (is_running_.load(std::memory_order_acquire)) {
                 auto current_time = std::chrono::high_resolution_clock::now();
                 float dt = std::chrono::duration<float>(current_time - last_time).count();
                 last_time = current_time;
@@ -54,7 +60,9 @@ namespace core {
                 event_bus_.clear();
 
                 // Если плагинов нет, выходим, чтобы не подвешивать поток на пустом цикле
-                if (plugins_.empty()) is_running_ = false;
+                if (plugins_.empty()) {
+                    is_running_.store(false, std::memory_order_release);
+                }
             }
 
             // Корректное завершение работы в обратном порядке (LIFO)
@@ -67,7 +75,9 @@ namespace core {
         }
 
         void stop() {
-            is_running_ = false;
+            // ИСПРАВЛЕНО: Теперь метод stop() может быть безопасно вызван 
+            // из ЛЮБОГО потока (например, из плагина Окна или Физики)
+            is_running_.store(false, std::memory_order_release);
         }
     };
 

@@ -22,13 +22,17 @@ namespace core {
 
     public:
         void initialize() {
-            running_ = true;
+            // ИСПРАВЛЕНО: Явно публикуем состояние true с барьером release
+            running_.store(true, std::memory_order_release);
+
             unsigned int threads_count = std::thread::hardware_concurrency();
             if (threads_count > 2) threads_count -= 1;
 
             for (unsigned int i = 0; i < threads_count; ++i) {
                 workers_.emplace_back([this]() {
-                    while (running_.load(std::memory_order_relaxed)) {
+                    // ИСПРАВЛЕНО: Используем memory_order_acquire вместо relaxed.
+                    // Это заставляет процессор перечитывать флаг из системной памяти на каждом шаге.
+                    while (running_.load(std::memory_order_acquire)) {
                         Job job;
                         if (pop(job)) {
                             job.function(job.data);
@@ -63,9 +67,14 @@ namespace core {
         }
 
         void shutdown() {
-            running_ = false;
+            // ИСПРАВЛЕНО: Выставляем false с барьером release, 
+            // чтобы все фоновые ядра CPU мгновенно увидели команду на выход
+            running_.store(false, std::memory_order_release);
+
             for (auto& worker : workers_) {
-                if (worker.joinable()) worker.join();
+                if (worker.joinable()) {
+                    worker.join(); // Главный поток гарантированно дожидается остановки потока
+                }
             }
             workers_.clear();
         }
