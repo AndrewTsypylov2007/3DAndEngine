@@ -7,9 +7,10 @@ on:
     branches: [ main, master ]
   release:
     types: [published]
+  workflow_dispatch: # Позволяет запускать сборку вручную
 
 env:
-  # Принудительно запускаем JavaScript-действия на Node.js 24
+  # Принудительно переключаем все JS-экшены на актуальный рантайм
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
@@ -22,12 +23,11 @@ jobs:
         config: [Release]
 
     steps:
-    # Обновлено до v6 для лучшей совместимости с Node 24
     - uses: actions/checkout@v6
 
     - name: Set up Developer Command Prompt for MSVC
       if: matrix.os == 'windows-latest'
-      uses: ilammy/msvc-dev-cmd@v1 # Используется актуальный тег v1
+      uses: ilammy/msvc-dev-cmd@v1
 
     - name: Configure CMake
       shell: bash
@@ -46,7 +46,8 @@ jobs:
     - name: Run Embedded Tests
       shell: bash
       run: |
-        if [ "${{ matrixos }}" = "windows-latest" ]; then
+        # Исправлена опечатка matrixos -> matrix.os
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
           ./build/Release/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/3DAndEngine.exe
         else
           chmod +x ./build/3DAndEngine || true
@@ -77,10 +78,12 @@ jobs:
       - name: Package SDK v2.0 (Strict White-list)
         shell: pwsh
         run: |
+          # Очистка старой папки перед упаковкой
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
+          # Улучшенный поиск бинарника
           $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
           foreach ($Path in $BinSearchPaths) {
               if (Test-Path $Path) {
@@ -89,6 +92,7 @@ jobs:
               }
           }
           
+          # Только новые файлы ядра v2.0
           $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "Application.h", "Platform.h", "PluginLoader.h")
           foreach ($Header in $AllowedHeaders) {
               $Src = "include/core/$Header"
@@ -96,10 +100,11 @@ jobs:
           }
           
           Set-Location dist
-          cmake -E tar cfv ../3DAndEngine-${{ matrix.os.split('-') }}.zip --format=zip .
+          # Формируем имя архива без лишних дефисов
+          $OsName = "${{ matrix.os }}".Replace("-latest", "")
+          cmake -E tar cfv ../3DAndEngine-$OsName.zip --format=zip .
 
       - name: Upload Release Asset
-        # Обновлено до v3 для поддержки рантайма Node 24
         uses: softprops/action-gh-release@v3
         with:
           files: 3DAndEngine-*.zip
