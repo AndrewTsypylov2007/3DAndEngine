@@ -10,11 +10,12 @@ on:
 
 jobs:
   build:
+    name: Build & Test Core
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        config: [Release] # Тестируем сразу Release конфигурацию, как на ПК!
+        config: [Release]
 
     steps:
     - uses: actions/checkout@v4
@@ -23,20 +24,25 @@ jobs:
       if: matrix.os == 'windows-latest'
       uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Configure CMake Target
+    - name: Configure CMake
       shell: bash
       run: |
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
-          -DBUILD_TESTS=ON \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
           -DVCPKG_FEATURE_FLAGS="manifests"
           
-    - name: Build Engine
+    - name: Build Engine (Release)
       run: cmake --build build --config ${{ matrix.config }}
 
-    - name: Run unit tests
-      run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
+    - name: Run Embedded Tests
+      shell: bash
+      run: |
+        if [ "${{ matrixos }}" = "windows-latest" ]; then
+          ./build/Release/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/3DAndEngine.exe
+        else
+          ./build/3DAndEngine || ./build/bin/3DAndEngine
+        fi
 
   release_build:
     name: Build and upload release artifacts
@@ -54,58 +60,42 @@ jobs:
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Configure (Release)
-        shell: bash
+      - name: Build (Release for SDK)
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
-            -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
-            -DVCPKG_FEATURE_FLAGS="manifests"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --config Release
 
-      - name: Build (Release)
-        run: cmake --build build --config Release
-
-      - name: Package artifacts
+      - name: Package SDK v2.0 (Strict White-list)
         shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK v0.2.0 (Чистый интерфейсный стандарт)
+          # 1. Полная очистка временных папок упаковки
+          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА:
-          if (Test-Path "build/bin/Release") {
-              Copy-Item -Path "build/bin/Release/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
-          } elseif (Test-Path "build/bin") {
-              Copy-Item -Path "build/bin/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          # 2. Поиск и копирование ТОЛЬКО исполняемого файла
+          $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
+          foreach ($Path in $BinSearchPaths) {
+              if (Test-Path $Path) {
+                  Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
+                  break
+              }
           }
           
-          # 3. Чистим мусор компиляции Windows (.obj, .ilk, .pdb) и Linux/macOS (.o), оставляя только бинарники
-          Get-ChildItem -Path "dist/bin" -File | Where-Object { 
-              $_.Extension -eq '.obj' -or 
-              $_.Extension -eq '.o' -or 
-              $_.Extension -eq '.ilk' -or 
-              $_.Extension -eq '.pdb' -or 
-              $_.Extension -eq '.exp' 
-          } | Remove-Item -Force -ErrorAction SilentlyContinue
-          
-          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v0.2.0
-          if (Test-Path "include/core") {
-              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
+          # 3. Копируем ТОЛЬКО разрешенные новые заголовочные файлы (Белый список)
+          $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "Application.h", "Platform.h", "PluginLoader.h")
+          foreach ($Header in $AllowedHeaders) {
+              $Src = "include/core/$Header"
+              if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }
           }
           
-          # 5. Копируем файл настроек, если он существует в корне
-          if (Test-Path "config.json") {
-              Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
-          }
-          
-          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
+          # 4. Финальная упаковка в ZIP
           Set-Location dist
-          cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
+          cmake -E tar cfv ../3DAndEngine-${{ matrix.os }}.zip --format=zip .
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
+        with:
+          files: 3DAndEngine-${{ matrix.os }}.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          files: release-artifacts-${{ matrix.os }}.zip
