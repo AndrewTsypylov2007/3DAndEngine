@@ -28,7 +28,6 @@ jobs:
       run: |
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
-          -DBUILD_TESTS=ON \
           -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
           -DVCPKG_FEATURE_FLAGS="manifests"
           
@@ -44,10 +43,28 @@ jobs:
           build/**/bin/Debug/*
           build/**/bin/*
           build/**/3DAndEngine*
-          build/**/unit_tests*
 
-    - name: Run unit tests
-      run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
+    - name: Run embedded core unit tests
+      shell: bash
+      run: |
+        # Запускаем исполняемый файл напрямую. Тесты прогоняются автоматически на старте.
+        if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [ -f "build/Debug/3DAndEngine.exe" ]; then
+            ./build/Debug/3DAndEngine.exe
+          elif [ -f "build/bin/Debug/3DAndEngine.exe" ]; then
+            ./build/bin/Debug/3DAndEngine.exe
+          else
+            find build -name "3DAndEngine.exe" -exec {} \;
+          fi
+        else
+          if [ -f "build/3DAndEngine" ]; then
+            ./build/3DAndEngine
+          elif [ -f "build/bin/3DAndEngine" ]; then
+            ./build/bin/3DAndEngine
+          else
+            find build -name "3DAndEngine" -type f -exec {} \;
+          fi
+        fi
 
   release_build:
     name: Build and upload release artifacts
@@ -70,7 +87,6 @@ jobs:
         run: |
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTS=OFF \
             -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
             -DVCPKG_FEATURE_FLAGS="manifests"
 
@@ -80,18 +96,23 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK v0.2.0 (Чистый интерфейсный стандарт)
+          # 1. Создаем структуру папок дистрибутива SDK v2.0.0 (3DAndEngine Data-Driven Core)
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА:
-          if (Test-Path "build/bin/Release") {
-              Copy-Item -Path "build/bin/Release/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА CMAKE:
+          if (Test-Path "build/Release") {
+              Copy-Item -Path "build/Release/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          } elseif (Test-Path "build/bin/Release") {
+              Copy-Item -Path "build/bin/Release/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           } elseif (Test-Path "build/bin") {
-              Copy-Item -Path "build/bin/*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+              Copy-Item -Path "build/bin/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
+          } else {
+              # Фолбэк-поиск, если структуры папок генераторов различаются
+              Get-ChildItem -Path "build" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.DirectoryName -notmatch "CMakeFiles" } | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          # 3. Чистим мусор компиляции Windows (.obj, .ilk) и Linux/macOS (.o), оставляя только бинарники
+          # 3. Чистим временный мусор компиляции ОС, оставляя строго исполняемые файлы и библиотеки
           Get-ChildItem -Path "dist/bin" -File | Where-Object { 
               $_.Extension -eq '.obj' -or 
               $_.Extension -eq '.o' -or 
@@ -100,7 +121,7 @@ jobs:
               $_.Extension -eq '.exp' 
           } | Remove-Item -Force -ErrorAction SilentlyContinue
           
-          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v0.2.0
+          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v2.0.0
           if (Test-Path "include/core") {
               Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
           }
@@ -110,7 +131,7 @@ jobs:
               Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
           }
           
-          # 6. Архивируем получившуюся структуру кроссплатформенным архиватором CMake
+          # 6. Архивируем структуру кроссплатформенным архиватором CMake
           Set-Location dist
           cmake -E tar cfv ../release-artifacts-${{ matrix.os }}.zip --format=zip .
 

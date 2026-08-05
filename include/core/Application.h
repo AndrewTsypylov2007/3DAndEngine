@@ -1,33 +1,74 @@
-// include/core/Application.h — Версия v0.2.0 (Interface-Based Standard)
 #pragma once
+#include "EcsRegistry.h"
+#include "EventBus.h"
+#include "JobSystem.h"
+#include "PluginContract.h"
 #include <vector>
-#include <string>
-#include <memory>
-#include <filesystem>
-#include "ServiceManager.h"
-#include "LibraryLoader.h"
+#include <algorithm>
+#include <chrono>
 
 namespace core {
 
     class Application {
     private:
-        ServiceManager m_services;
-        std::unique_ptr<LibraryLoader> m_loader;
-        std::vector<std::string> m_startPlugins;
-        bool m_running = false;
+        EcsRegistry     ecs_;
+        EventBus        event_bus_;
+        JobSystem       job_system_;
+        bool            is_running_ = false;
 
-        void mainLoop();
-
-        // ФИКС: Сигнатура должна строго принимать const std::filesystem::path&
-        void discoverPluginsInPath(const std::filesystem::path& searchPath);
+        std::vector<PluginInterface*> plugins_;
 
     public:
-        Application();
-        ~Application();
+        void registerPlugin(PluginInterface* plugin) {
+            if (!plugin) return;
+            plugins_.push_back(plugin);
 
-        int run();
+            // Сортировка по приоритету выполнения для исключения рассинхронизации кадра
+            std::sort(plugins_.begin(), plugins_.end(), [](PluginInterface* a, PluginInterface* b) {
+                return a->priority < b->priority;
+                });
 
-        // ФИКС: Метод stop() обязан быть публичным, чтобы деструктор или внешние системы могли его вызвать
-        void stop();
+            EngineContext ctx{ &ecs_, &event_bus_, &job_system_ };
+            plugin->on_load(ctx);
+        }
+
+        void run() {
+            job_system_.initialize();
+            is_running_ = true;
+
+            auto last_time = std::chrono::high_resolution_clock::now();
+
+            while (is_running_) {
+                auto current_time = std::chrono::high_resolution_clock::now();
+                float dt = std::chrono::duration<float>(current_time - last_time).count();
+                last_time = current_time;
+
+                // 1. Выполнение логики всех плагинов в строго заданном порядке
+                for (auto* plugin : plugins_) {
+                    if (plugin->on_update) {
+                        plugin->on_update(dt);
+                    }
+                }
+
+                // 2. Сброс кольцевого буфера событий в конце кадра
+                event_bus_.clear();
+
+                // Если плагинов нет, выходим, чтобы не подвешивать поток на пустом цикле
+                if (plugins_.empty()) is_running_ = false;
+            }
+
+            // Корректное завершение работы в обратном порядке (LIFO)
+            for (auto it = plugins_.rbegin(); it != plugins_.rend(); ++it) {
+                if ((*it)->on_unload) {
+                    (*it)->on_unload();
+                }
+            }
+            job_system_.shutdown();
+        }
+
+        void stop() {
+            is_running_ = false;
+        }
     };
-}
+
+} // namespace core

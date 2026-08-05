@@ -145,34 +145,18 @@
     <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\core\IEventBus.h" />
     <ClInclude Include="include\core\Application.h" />
-    <ClInclude Include="include\core\ConfigService.h" />
     <ClInclude Include="include\core\EventBus.h" />
-    <ClInclude Include="include\core\IService.h" />
-    <ClInclude Include="include\core\LoggerService.h" />
-    <ClInclude Include="include\core\LibraryLoader.h" />
-    <ClInclude Include="include\core\SemVer.h" />
-    <ClInclude Include="include\core\ServiceManager.h" />
-    <ClInclude Include="include\core\TaskScheduler.h" />
-    <ClInclude Include="include\core\InputEvent.h" />
-    <ClInclude Include="include\core\IServiceManager.h" />
-    <ClInclude Include="tests\TestHarness.h" />
-    <ClInclude Include="include\core\WindowHandle.h" />
+    <ClInclude Include="include\core\EcsRegistry.h" />
+    <ClInclude Include="include\core\Platform.h" />
+    <ClInclude Include="include\core\PluginLoader.h" />
+    <ClInclude Include="include\core\JobSystem.h" />
+    <ClInclude Include="include\core\PluginContract.h" />
+    <ClInclude Include="include\core\Types.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\core\Application.cpp" />
-    <ClCompile Include="src\core\ConfigService.cpp" />
-    <ClCompile Include="src\core\EventBus.cpp" />
-    <ClCompile Include="src\core\LoggerService.cpp" />
-    <ClCompile Include="src\core\LibraryLoader.cpp" />
-    <ClCompile Include="src\core\SemVer.cpp" />
-    <ClCompile Include="src\core\ServiceManager.cpp" />
-    <ClCompile Include="src\core\TaskScheduler.cpp" />
     <ClCompile Include="src\main.cpp" />
-    <ClCompile Include="tests\test_semver.cpp" />
-    <ClCompile Include="tests\test_servicemanager.cpp" />
-    <ClCompile Include="tests\unit_tests.cpp" />
+    <ClCompile Include="tests\UnitTestsMain.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include=".github\workflows\ci.yml" />

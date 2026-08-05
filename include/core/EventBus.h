@@ -1,33 +1,45 @@
-// include/core/EventBus.h — Версия v0.2.0 (POSIX Standard Fix)
 #pragma once
-#include "IEventBus.h"
-#include <map>
-#include <string>
-#include <vector>
-#include <shared_mutex>
+#include "Types.h"
+#include <array>
+#include <atomic>
 
 namespace core {
 
-    class EventBus : public IEventBus {
-    private:
-        struct Subscription {
-            EventHandlerId id; // Чистый тип из IService
-            IEventHandler* handler;
-        };
+    // Универсальный атомарный пакет события
+    struct EventPacket {
+        EventId id;
+        uint64_t payload; // Сюда можно упаковать как число, так и сырой указатель на структуру данных
+    };
 
-        std::map<std::string, std::vector<Subscription>> handlers_;
-        EventHandlerId nextId_ = 1;
-        mutable std::shared_mutex mutex_;
+    class EventBus {
+    private:
+        static constexpr size_t MAX_EVENTS = 8192; // Буфер на 8к одновременных событий за 1 кадр
+        std::array<EventPacket, MAX_EVENTS> buffer_;
+        std::atomic<size_t> count_{ 0 };
 
     public:
-        const char* getServiceName() const override { return "EventBus"; }
+        // Потокобезопасная отправка события из любого рабочего потока без аллокаций в куче
+        void broadcast(EventId id, uint64_t payload = 0) {
+            size_t index = count_.fetch_add(1, std::memory_order_relaxed);
+            if (index < MAX_EVENTS) {
+                buffer_[index] = EventPacket{ id, payload };
+            }
+            // Если буфер переполнен (в продакшене), здесь логируется предупреждение
+        }
 
-        bool init(IServiceManager&) override { return true; }
-        void start() override {}
-        void stop() override {}
+        // Вызывается ядром строго в конце системного кадра
+        void clear() {
+            count_.store(0, std::memory_order_release);
+        }
 
-        EventHandlerId subscribe(std::string_view topic, IEventHandler* handler) override;
-        void unsubscribe(std::string_view topic, EventHandlerId id) override;
-        void publish(std::string_view topic, std::string_view data = "") override;
+        size_t getEventsCount() const {
+            size_t current_count = count_.load(std::memory_order_acquire);
+            return current_count > MAX_EVENTS ? MAX_EVENTS : current_count;
+        }
+
+        const EventPacket* getEventsData() const {
+            return buffer_.data();
+        }
     };
-}
+
+} // namespace core
