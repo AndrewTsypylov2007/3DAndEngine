@@ -47,7 +47,6 @@ jobs:
     - name: Run embedded core unit tests
       shell: bash
       run: |
-        # Запускаем исполняемый файл напрямую. Тесты прогоняются автоматически на старте.
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
           if [ -f "build/Debug/3DAndEngine.exe" ]; then
             ./build/Debug/3DAndEngine.exe
@@ -96,11 +95,11 @@ jobs:
       - name: Package artifacts
         shell: pwsh
         run: |
-          # 1. Создаем структуру папок дистрибутива SDK v2.0.0 (3DAndEngine Data-Driven Core)
+          # 1. Создаем структуру папок дистрибутива SDK v2.0.0
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 2. КОПИРОВАНИЕ ИСПОЛНЯЕМЫХ ФАЙЛОВ ИЗ ПАПКИ ВЫВОДА CMAKE:
+          # 2. Копирование исполняемых файлов ядра
           if (Test-Path "build/Release") {
               Copy-Item -Path "build/Release/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           } elseif (Test-Path "build/bin/Release") {
@@ -108,11 +107,10 @@ jobs:
           } elseif (Test-Path "build/bin") {
               Copy-Item -Path "build/bin/3DAndEngine*" -Destination "dist/bin/" -Force -ErrorAction SilentlyContinue
           } else {
-              # Фолбэк-поиск, если структуры папок генераторов различаются
               Get-ChildItem -Path "build" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.DirectoryName -notmatch "CMakeFiles" } | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          # 3. Чистим временный мусор компиляции ОС, оставляя строго исполняемые файлы и библиотеки
+          # 3. Чистим мусор компиляции
           Get-ChildItem -Path "dist/bin" -File | Where-Object { 
               $_.Extension -eq '.obj' -or 
               $_.Extension -eq '.o' -or 
@@ -121,12 +119,32 @@ jobs:
               $_.Extension -eq '.exp' 
           } | Remove-Item -Force -ErrorAction SilentlyContinue
           
-          # 4. Копируем заголовочные файлы-интерфейсы инфраструктуры v2.0.0
-          if (Test-Path "include/core") {
-              Copy-Item -Path "include/core/*" -Destination "dist/include/core/" -Recurse -Force
+          # ==============================================================================
+          # 4. ИСПРАВЛЕНО: Жесткий белый список заголовочных файлов ядра v2.0.0
+          # Копируем ТОЛЬКО новые AAA-файлы, полностью игнорируя старый мусор v1.0
+          # ==============================================================================
+          $AllowedHeaders = @(
+              "Types.h", 
+              "EcsRegistry.h", 
+              "EventBus.h", 
+              "JobSystem.h", 
+              "PluginContract.h", 
+              "Application.h", 
+              "Platform.h", 
+              "PluginLoader.h"
+          )
+
+          foreach ($Header in $AllowedHeaders) {
+              $SourcePath = "include/core/$Header"
+              if (Test-Path $SourcePath) {
+                  Copy-Item -Path $SourcePath -Destination "dist/include/core/" -Force
+                  Write-Output "[CI SDK Pack] Successfully whitelisted: $Header"
+              } else {
+                  Write-Warning "[CI SDK Pack WARNING] Expected header not found: $SourcePath"
+              }
           }
           
-          # 5. Копируем файл настроек, если он существует в корне
+          # 5. Копируем файл настроек, если он существует
           if (Test-Path "config.json") {
               Copy-Item -Path "config.json" -Destination "dist/bin/" -Force
           }
