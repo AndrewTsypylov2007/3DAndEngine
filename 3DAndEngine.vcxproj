@@ -153,6 +153,7 @@
     <ClInclude Include="include\core\JobSystem.h" />
     <ClInclude Include="include\core\PluginContract.h" />
     <ClInclude Include="include\core\Types.h" />
+    <ClInclude Include="include\core\RenderCommand.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />

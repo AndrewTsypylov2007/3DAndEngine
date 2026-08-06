@@ -67,23 +67,21 @@ jobs:
       contents: write
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [windows-latest] # Фиксируем винду для сборки SDK плагинов
     steps:
       - uses: actions/checkout@v4
 
-      # Явная установка Node.js 24 для процесса релиза
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: '24'
 
       - name: Set up Developer Command Prompt for MSVC
-        if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build (Release for SDK)
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
           cmake --build build --config Release
 
       - name: Package SDK v2.0 (Strict White-list)
@@ -101,7 +99,8 @@ jobs:
               }
           }
           
-          $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "Application.h", "Platform.h", "PluginLoader.h")
+          # ИСПРАВЛЕНО: Добавлен RenderCommand.h в жесткий белый список релиза SDK
+          $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "RenderCommand.h", "Application.h", "Platform.h", "PluginLoader.h")
           foreach ($Header in $AllowedHeaders) {
               $Src = "include/core/$Header"
               if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }

@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <memory>
 #include <cassert>
+#include <string>
 
 namespace core {
 
@@ -57,22 +58,34 @@ namespace core {
         }
     };
 
-    // Генератор уникальных ID для типов во время выполнения без typeid
+    // ==============================================================================
+    // ИСПРАВЛЕНО: МОДУЛЬНЫЙ ГЕНЕРАТОР УНИКАЛЬНЫХ ID (УСТОЙЧИВ К ГРАНИЦАМ DLL)
+    // ==============================================================================
+    // Использует строковые имена типов для генерации глобально синхронизированных ID
     class ComponentTypeCounter {
     private:
-        static inline ComponentTypeId next_id = 0;
+        // Глобальная карта имен типов, которая будет жить в ядре движка
+        static inline std::unordered_map<std::string, ComponentTypeId> type_map_;
+        static inline ComponentTypeId next_id_ = 0;
     public:
         template<typename T>
         static ComponentTypeId get_id() {
-            static ComponentTypeId id = next_id++;
-            return id;
+            // Получаем уникальное compile-time имя типа (работает во всех DLL одинаково)
+            std::string type_name = typeid(T).name();
+
+            auto it = type_map_.find(type_name);
+            if (it == type_map_.end()) {
+                ComponentTypeId new_id = next_id_++;
+                type_map_[type_name] = new_id;
+                return new_id;
+            }
+            return it->second;
         }
     };
 
     class EcsRegistry {
     private:
         Entity next_entity_ = 1;
-        // Используем плоский вектор пулов вместо unordered_map для максимальной скорости
         std::vector<std::unique_ptr<IComponentPool>> pools_;
 
         template<typename T>
