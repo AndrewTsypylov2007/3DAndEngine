@@ -36,11 +36,11 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: Configure CMake
-      shell: bash
+      shell: bash # ИСПРАВЛЕНО: Принудительно запускаем Bash на всех ОС для раскрытия $VCPKG_INSTALLATION_ROOT
       run: |
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
-          -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake \
+          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
           -DVCPKG_FEATURE_FLAGS="manifests" \
           -DENABLE_LOGGER=ON \
           -DENABLE_SCHEDULER=ON \
@@ -67,7 +67,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        os: [windows-latest] # Фиксируем винду для сборки SDK плагинов
+        os: [ubuntu-latest, windows-latest, macos-latest] # ИСПРАВЛЕНО: Вернули все три AAA-платформы!
     steps:
       - uses: actions/checkout@v4
 
@@ -77,11 +77,15 @@ jobs:
           node-version: '24'
 
       - name: Set up Developer Command Prompt for MSVC
+        if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Build (Release for SDK)
+        shell: bash
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           cmake --build build --config Release
 
       - name: Package SDK v2.0 (Strict White-list)
@@ -91,6 +95,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/bin"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
+          # КРОСС ПЛАТФОРМЕННЫЙ ПОИСК БИНАРНИКА (Учитывает отсутствие .exe на Linux/Mac)
           $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
           foreach ($Path in $BinSearchPaths) {
               if (Test-Path $Path) {
@@ -99,7 +104,6 @@ jobs:
               }
           }
           
-          # ИСПРАВЛЕНО: Добавлен RenderCommand.h в жесткий белый список релиза SDK
           $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "RenderCommand.h", "Application.h", "Platform.h", "PluginLoader.h")
           foreach ($Header in $AllowedHeaders) {
               $Src = "include/core/$Header"
