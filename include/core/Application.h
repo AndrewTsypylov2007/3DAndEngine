@@ -11,26 +11,21 @@
 namespace core {
 
     // ==============================================================================
-    // AAA NULL OBJECTS: Безопасные "глухие" заглушки для работы без плагинов
+    // AAA NULL OBJECTS: Теперь они написаны в новом C-Style ABI
     // ==============================================================================
-    class NullInputSubsystem : public IInputSubsystem {
-    public:
-        bool isKeyPressed(int) const override { return false; }
-        void getMousePos(double& x, double& y) const override { x = 0.0; y = 0.0; }
-        bool isMouseButtonPressed(int) const override { return false; }
-    };
+    
+    // Заглушки теперь — это просто статические функции, а не виртуальные классы
+    namespace null_subsystems {
+        inline bool isKeyPressed(int) { return false; }
+        inline void getMousePos(double* x, double* y) { if(x) *x = 0.0; if(y) *y = 0.0; }
+        inline bool isMouseButtonPressed(int) { return false; }
 
-    class NullAudioSubsystem : public LAudioSubsystem {
-    public:
-        uint32_t loadSound(const char*) override { return 0; }
-        void playSound(uint32_t, float, bool) override {}
-        void setListenerPosition(float, float, float) override {}
-    };
+        inline uint32_t loadSound(const char*) { return 0; }
+        inline void playSound(uint32_t, float, bool) {}
+        inline void setListenerPosition(float, float, float) {}
 
-    class NullRenderBridge : public IRenderBridge {
-    public:
-        void submitRenderCommand(uint32_t, void*) override {}
-    };
+        inline void submitRenderCommand(uint32_t, const void*, size_t) {}
+    }
 
     class Application {
     private:
@@ -41,15 +36,15 @@ namespace core {
         std::atomic<bool> is_running_{ false };
         std::vector<PluginInterface*> plugins_;
 
-        // Создаем экземпляры заглушек в памяти ядра
-        NullInputSubsystem null_input_;
-        NullAudioSubsystem null_audio_;
-        NullRenderBridge   null_renderer_;
+        // Таблицы функций для заглушек (живут в памяти ядра)
+        InputAPI null_input_api_{ null_subsystems::isKeyPressed, null_subsystems::getMousePos, null_subsystems::isMouseButtonPressed };
+        AudioAPI null_audio_api_{ null_subsystems::loadSound, null_subsystems::playSound, null_subsystems::setListenerPosition };
+        RenderAPI null_render_api_{ null_subsystems::submitRenderCommand };
 
-        // Инициализируем указатели сервисов ссылками на заглушки
-        IInputSubsystem* input_service_ = &null_input_;
-        LAudioSubsystem* audio_service_ = &null_audio_;
-        IRenderBridge* render_service_ = &null_renderer_;
+        // Рабочие указатели на активные интерфейсы (по умолчанию указывают на заглушки)
+        InputAPI*  input_service_  = &null_input_api_;
+        AudioAPI*  audio_service_  = &null_audio_api_;
+        RenderAPI* render_service_ = &null_render_api_;
 
     public:
         void registerPlugin(PluginInterface* plugin) {
@@ -58,10 +53,9 @@ namespace core {
 
             std::sort(plugins_.begin(), plugins_.end(), [](PluginInterface* a, PluginInterface* b) {
                 return a->priority < b->priority;
-                });
+            });
 
-            // ИСПРАВЛЕНО: Явная и полная инициализация всех 6 полей структуры EngineContext.
-            // Больше никаких missing-field-initializers на серверах GCC/Linux!
+            // Создаем контекст ядра
             EngineContext ctx{
                 &ecs_,
                 &event_bus_,
@@ -71,12 +65,14 @@ namespace core {
                 render_service_
             };
 
-            plugin->on_load(ctx);
+            // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Передаем адрес контекста (&ctx). 
+            // Теперь плагин пишет напрямую в эту структуру!
+            plugin->on_load(&ctx);
 
-            // Если плагин прописал реальный сервис, ядро заменяет заглушку боевой системой
-            if (ctx.input && ctx.input != &null_input_)       input_service_ = ctx.input;
-            if (ctx.audio && ctx.audio != &null_audio_)       audio_service_ = ctx.audio;
-            if (ctx.renderer && ctx.renderer != &null_renderer_) render_service_ = ctx.renderer;
+            // Если плагин подменил указатели в контексте — обновляем сервисы ядра
+            if (ctx.input && ctx.input != &null_input_api_)       input_service_  = ctx.input;
+            if (ctx.audio && ctx.audio != &null_audio_api_)       audio_service_  = ctx.audio;
+            if (ctx.renderer && ctx.renderer != &null_render_api_) render_service_ = ctx.renderer;
         }
 
         void run() {
@@ -90,7 +86,7 @@ namespace core {
                 float dt = std::chrono::duration<float>(current_time - last_time).count();
                 last_time = current_time;
 
-                // ИСПРАВЛЕНО: Полная инициализация контекста внутри каждого такта игрового цикла
+                // Пересобираем актуальный контекст на этот такт кадра
                 EngineContext ctx{
                     &ecs_,
                     &event_bus_,
