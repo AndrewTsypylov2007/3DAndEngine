@@ -1,71 +1,71 @@
 #pragma once
-#include "EcsRegistry.h"
-#include "EventBus.h"
-#include "JobSystem.h"
 #include <cstdint>
-#include "RenderCommand.h"
+
+// Опережающие объявления (ядро передает их как непрозрачные указатели)
+class EcsRegistry;
+class EventBus;
+class JobSystem;
 
 namespace core {
 
     // ==============================================================================
-    // СЕРВИСНЫЕ ИНТЕРФЕЙСЫ НА БУДУЩЕЕ (Слепые абстрактные субстраты)
+    // ЧИСТЫЕ C-ИНТЕРФЕЙСЫ (Без vtable-зависимостей компиляторов)
     // ==============================================================================
 
-    // Субстрат ввода: мышь, клавиатура, геймпады
-    class IInputSubsystem {
-    public:
-        virtual ~IInputSubsystem() = default;
-        virtual bool isKeyPressed(int key_code) const = 0;
-        virtual void getMousePos(double& x, double& y) const = 0;
-        virtual bool isMouseButtonPressed(int button) const = 0;
+    // Вместо виртуальных классов используем структуры с плоскими указателями на функции.
+    // Это гарантирует, что MSVC, GCC и Clang поймут их абсолютно одинаково.
+
+    struct InputAPI {
+        bool (*is_key_pressed)(int key_code);
+        void (*get_mouse_pos)(double* x, double* y);
+        bool (*is_mouse_button_pressed)(int button);
     };
 
-    // Субстрат аудио: проигрывание звуков, эффектов и 3D-аудиоисточников
-    class LAudioSubsystem {
-    public:
-        virtual ~LAudioSubsystem() = default;
-        virtual uint32_t loadSound(const char* filepath) = 0;
-        virtual void playSound(uint32_t sound_id, float volume = 1.0f, bool loop = false) = 0;
-        virtual void setListenerPosition(float x, float y, float z) = 0;
+    struct AudioAPI {
+        uint32_t(*load_sound)(const char* filepath);
+        void     (*play_sound)(uint32_t sound_id, float volume, bool loop);
+        void     (*set_listener_pos)(float x, float y, float z);
     };
 
-    // Мост рендеринга (Тот самый "Кент"): Сюда плагины шлют draw-команды кадра
-    class IRenderBridge {
-    public:
-        virtual ~IRenderBridge() = default;
-        // Передача сырых графических данных (ImGui, буферы мешей, костные матрицы) вслепую
-        virtual void submitRenderCommand(uint32_t command_type, void* data_ptr) = 0;
+    struct RenderAPI {
+        // Передача команд. Для безопасности void* data_ptr заменен на явный размер данных data_size
+        void (*submit_command)(uint32_t command_type, const void* data_ptr, size_t data_size);
     };
 
     // ==============================================================================
-    // ОБНОВЛЕННЫЙ ЕДИНЫЙ КОНТЕКСТ ЯДРА ДВИЖКА
+    // ИСПРАВЛЕННЫЙ ЕДИНЫЙ КОНТЕКСТ ЯДРА
     // ==============================================================================
     struct EngineContext {
         EcsRegistry* ecs;
         EventBus* event_bus;
         JobSystem* job_system;
 
-        // AAA-Расширение: Сервисы-посредники. Если плагин не загружен — указатель равен nullptr
-        IInputSubsystem* input;      // Заполнит WindowPlugin / InputPlugin
-        LAudioSubsystem* audio;      // Заполнит AudioPlugin (OpenAL / FMOD)
-        IRenderBridge* renderer;   // Заполнит RenderVulkanPlugin ("Кент")
+        // Таблицы функций для подсистем (если плагин не загружен — указатели внутри будут nullptr)
+        InputAPI* input;
+        AudioAPI* audio;
+        RenderAPI* renderer;
     };
 
+    // ==============================================================================
+    // ИНТЕРФЕЙС ПЛАГИНА
+    // ==============================================================================
     struct PluginInterface {
         const char* name;
         uint32_t    priority;
 
-        void (*on_load)(EngineContext ctx);
+        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Передача контекста строго по указателю (EngineContext*)
+        void (*on_load)(EngineContext* ctx);
         void (*on_update)(float delta_time);
         void (*on_unload)();
     };
 
 } // namespace core
 
+// Экспорт для динамических библиотек
 extern "C" {
 #if defined(_WIN32)
     __declspec(dllexport) core::PluginInterface* GetPluginAPI();
 #else
-    core::PluginInterface* GetPluginAPI();
+    __declspec(dllexport) core::PluginInterface* GetPluginAPI(); // Для Linux/macOS
 #endif
 }
