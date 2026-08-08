@@ -64,8 +64,11 @@ namespace core {
 // Экспорт для динамических библиотек
 extern "C" {
 #if defined(_WIN32)
+    // Для Windows (MSVC / MinGW)
     __declspec(dllexport) core::PluginInterface* GetPluginAPI();
 #else
-    __declspec(dllexport) core::PluginInterface* GetPluginAPI(); // Для Linux/macOS
+    // Для macOS (Clang) и Linux (GCC)
+    // Используем стандартный атрибут видимости для Unix систем
+    __attribute__((visibility("default"))) core::PluginInterface* GetPluginAPI();
 #endif
 }
