@@ -53,7 +53,10 @@ void test_reactive_ecs() {
 
     // Регистрируем реактивного "слушателя" изменений памяти ECS буфера
     core::EcsListener listener;
-    listener.on_component_added = [&](core::Entity [[maybe_unused]] ent, core::ComponentTypeId [[maybe_unused]] id) {
+    // ИСПРАВЛЕНО: Убрали атрибуты из аргументов, используем (void) для кроссплатформенности
+    listener.on_component_added = [&](core::Entity ent, core::ComponentTypeId id) {
+        (void)ent;
+        (void)id;
         component_added = true;
         };
     registry.addListener(listener);
@@ -79,7 +82,9 @@ void test_hybrid_eventbus() {
     bool immediate_reacted = false;
 
     // Подписываемся на мгновенное синхронное прерывание кадра
-    event_bus.subscribe("engine/exit"_id, [&](uint64_t [[maybe_unused]] payload) {
+    // ИСПРАВЛЕНО: Убрали атрибуты из аргументов, используем (void) для кроссплатформенности
+    event_bus.subscribe("engine/exit"_id, [&](uint64_t payload) {
+        (void)payload;
         immediate_reacted = true;
         });
 
