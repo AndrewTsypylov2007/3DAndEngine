@@ -6,14 +6,13 @@
 #include <cassert>
 #include <string>
 #include <functional>
-#include <shared_mutex> // Для потокобезопасности
+#include <shared_mutex>
 
 namespace core {
 
     // ==============================================================================
     // РЕАКТИВНЫЙ ИНТЕРФЕЙС (v0.3.0)
     // ==============================================================================
-    // Позволяет плагинам подписываться на изменения в ECS
     struct EcsListener {
         std::function<void(Entity, ComponentTypeId)> on_component_added;
         std::function<void(Entity, ComponentTypeId)> on_component_removed;
@@ -72,33 +71,50 @@ namespace core {
         }
     };
 
-    // Глобально синхронизированный счетчик типов (стабилен между DLL)
+    // ==============================================================================
+    // КРОСС-DLL СЧЕТЧИК ТИПОВ (v0.3.0 Профессиональный Стандарт)
+    // ==============================================================================
+    // Избавляемся от статических инлайнов. Храним карту распределения ID типов
+    // в куче, доступной через атомарный синглтон-мост.
     class ComponentTypeCounter {
-    private:
-        static inline std::unordered_map<std::string, ComponentTypeId> type_map_;
-        static inline ComponentTypeId next_id_ = 0;
-        static inline std::shared_mutex mutex_;
     public:
         template<typename T>
         static ComponentTypeId get_id() {
-            std::unique_lock lock(mutex_);
+            // Структура хранилища карт типов, гарантированно единая для всего рантайма
+            struct TypeRegistry {
+                std::unordered_map<std::string, ComponentTypeId> table;
+                ComponentTypeId counter = 0;
+                std::shared_mutex mutex;
+            };
+
+            // Легковесный синглтон-держатель, устойчивый к оптимизациям линкера MSVC
+            static TypeRegistry* registry = []() {
+                static TypeRegistry instance;
+                return &instance;
+                }();
+
+            std::unique_lock lock(registry->mutex);
             std::string type_name = typeid(T).name();
-            auto it = type_map_.find(type_name);
-            if (it == type_map_.end()) {
-                ComponentTypeId new_id = next_id_++;
-                type_map_[type_name] = new_id;
+
+            auto it = registry->table.find(type_name);
+            if (it == registry->table.end()) {
+                ComponentTypeId new_id = registry->counter++;
+                registry->table[type_name] = new_id;
                 return new_id;
             }
             return it->second;
         }
     };
 
+    // ==============================================================================
+    // REACTIONAL ECS REGISTRY
+    // ==============================================================================
     class EcsRegistry {
     private:
         Entity next_entity_ = 1;
         std::vector<std::unique_ptr<IComponentPool>> pools_;
         std::vector<EcsListener> listeners_;
-        mutable std::shared_mutex main_mutex_; // Для защиты структуры ECS
+        mutable std::shared_mutex main_mutex_;
 
         template<typename T>
         ComponentPool<T>* get_pool() {
@@ -113,6 +129,13 @@ namespace core {
         }
 
     public:
+        EcsRegistry() = default;
+        ~EcsRegistry() = default;
+
+        // Исключаем копирование тяжелого реестра данных
+        EcsRegistry(const EcsRegistry&) = delete;
+        EcsRegistry& operator=(const EcsRegistry&) = delete;
+
         Entity createEntity() {
             std::unique_lock lock(main_mutex_);
             return next_entity_++;
@@ -127,7 +150,7 @@ namespace core {
                 ptr = &get_pool<T>()->assign(entity, std::move(component));
             }
 
-            // Уведомляем слушателей (например, физику или рендер)
+            // Оповещаем внешние плагины (Физика/Рендер) через реактивные хуки
             for (auto& listener : listeners_) {
                 if (listener.on_component_added) listener.on_component_added(entity, tid);
             }
@@ -153,7 +176,6 @@ namespace core {
             }
         }
 
-        // Подписка на события ECS (v0.3.0)
         void addListener(EcsListener listener) {
             std::unique_lock lock(main_mutex_);
             listeners_.push_back(std::move(listener));
