@@ -1,4 +1,4 @@
-name: CI
+name: CI v0.3.0
 
 on:
   push:
@@ -10,12 +10,11 @@ on:
   workflow_dispatch: 
 
 env:
-  # Принудительно направляем все JS-действия на Node.js 24
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   build:
-    name: Build & Test Core
+    name: Build & Test Core v0.3.0
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -25,7 +24,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    # Явная установка Node.js 24
     - name: Setup Node.js 24
       uses: actions/setup-node@v4
       with:
@@ -36,15 +34,12 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: Configure CMake
-      shell: bash # ИСПРАВЛЕНО: Принудительно запускаем Bash на всех ОС для раскрытия $VCPKG_INSTALLATION_ROOT
+      shell: bash
       run: |
         cmake -S . -B build \
           -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
           -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
-          -DVCPKG_FEATURE_FLAGS="manifests" \
-          -DENABLE_LOGGER=ON \
-          -DENABLE_SCHEDULER=ON \
-          -DENABLE_PLUGIN_DISCOVERY=ON
+          -DVCPKG_FEATURE_FLAGS="manifests"
           
     - name: Build Engine (Release)
       run: cmake --build build --config ${{ matrix.config }}
@@ -52,11 +47,12 @@ jobs:
     - name: Run Embedded Tests
       shell: bash
       run: |
+        # В v0.3.0 бинарник по умолчанию падает в папку bin/ в корне проекта
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./build/Release/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/3DAndEngine.exe
+          ./bin/3DAndEngine.exe || ./build/bin/3DAndEngine.exe || ./build/Release/3DAndEngine.exe
         else
-          chmod +x ./build/3DAndEngine || true
-          ./build/3DAndEngine || ./build/bin/3DAndEngine
+          chmod +x ./bin/3DAndEngine || true
+          ./bin/3DAndEngine || ./build/bin/3DAndEngine
         fi
 
   release_build:
@@ -67,7 +63,7 @@ jobs:
       contents: write
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest] # ИСПРАВЛЕНО: Вернули все три AAA-платформы!
+        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -88,35 +84,50 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           cmake --build build --config Release
 
-      - name: Package SDK v2.0 (Strict White-list)
+      - name: Package SDK v0.3.0 (Commercial Structure)
         shell: pwsh
         run: |
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
-          New-Item -ItemType Directory -Force -Path "dist/bin"
+          # Создаем структуру SDK
+          New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
+          New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
+          New-Item -ItemType Directory -Force -Path "dist/bin/assets"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # КРОСС ПЛАТФОРМЕННЫЙ ПОИСК БИНАРНИКА (Учитывает отсутствие .exe на Linux/Mac)
-          $BinSearchPaths = @("build/Release/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/3DAndEngine*")
-          foreach ($Path in $BinSearchPaths) {
-              if (Test-Path $Path) {
-                  Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
-                  break
-              }
+          # 1. Копируем исполняемый файл из новой папки bin
+          $BinTarget = if ($IsWindows) { "bin/3DAndEngine.exe" } else { "bin/3DAndEngine" }
+          if (Test-Path $BinTarget) {
+              Copy-Item $BinTarget -Destination "dist/bin/" -Force
+          } else {
+              # Failsafe на случай если CMake положил в build
+              Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          $AllowedHeaders = @("Types.h", "EcsRegistry.h", "EventBus.h", "JobSystem.h", "PluginContract.h", "RenderCommand.h", "Application.h", "Platform.h", "PluginLoader.h")
-          foreach ($Header in $AllowedHeaders) {
-              $Src = "include/core/$Header"
+          # 2. Копируем обновленные заголовки v0.3.0
+          $Headers = @(
+            "Types.h", 
+            "EcsRegistry.h", 
+            "EventBus.h", 
+            "JobSystem.h", 
+            "PluginContract.h", 
+            "RenderDefinitions.h", 
+            "Application.h", 
+            "LibraryLoader.h", 
+            "PluginLoader.h"
+          )
+          foreach ($H in $Headers) {
+              $Src = "include/core/$H"
               if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }
           }
           
+          # Упаковка
           Set-Location dist
           $OsName = "${{ matrix.os }}".Replace("-latest", "")
-          cmake -E tar cfv ../3DAndEngine-$OsName.zip --format=zip .
+          cmake -E tar cfv ../3DAndEngine-SDK-v0.3.0-$OsName.zip --format=zip .
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: 3DAndEngine-*.zip
+          files: 3DAndEngine-SDK-v0.3.0-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

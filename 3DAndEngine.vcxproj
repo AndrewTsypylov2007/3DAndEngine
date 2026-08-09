@@ -154,6 +154,7 @@
     <ClInclude Include="include\core\PluginContract.h" />
     <ClInclude Include="include\core\Types.h" />
     <ClInclude Include="include\core\RenderCommand.h" />
+    <ClInclude Include="include\core\LibraryLoader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\main.cpp" />
