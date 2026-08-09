@@ -23,11 +23,8 @@ namespace core {
     // ==============================================================================
     // SERVICE LOCATOR REGISTRY (v0.3.0 Commercial Standard)
     // ==============================================================================
-    // Единая таблица коммутации систем движка. Ключевое слово inline гарантирует,
-    // что все DLL-модули и EXE будут делить одну физическую мапу в памяти.
     inline std::unordered_map<SystemID, void*> g_SystemRegistry;
 
-    // Слой моста для плоских C-указателей функций
     class SystemBridge {
     public:
         static void* GetSystem(SystemID id) {
@@ -37,8 +34,7 @@ namespace core {
 
         static void RegisterSystem(SystemID id, void* ptr) {
             g_SystemRegistry[id] = ptr;
-            std::cout << "[Core v0.3.0] Служба успешно подключена к шине: 0x"
-                << std::hex << id << std::dec << std::endl;
+            std::cout << "[Core v0.3.0] Служба успешно подключена к шине: 0x" << std::hex << id << std::dec << std::endl;
         }
     };
 
@@ -60,7 +56,6 @@ namespace core {
 
     public:
         Application() {
-            // При старте материнская плата инициализирует разъемы безопасными заглушками
             SystemBridge::RegisterSystem(SYS_INPUT, &null_input_api_);
             SystemBridge::RegisterSystem(SYS_AUDIO, &null_audio_api_);
             SystemBridge::RegisterSystem(SYS_RENDERER, &null_render_api_);
@@ -70,28 +65,19 @@ namespace core {
             stop();
         }
 
-        // Запрещаем копирование ядра (RAII синглтон-структура)
         Application(const Application&) = delete;
         Application& operator=(const Application&) = delete;
 
-        /**
-         * @brief Регистрация и привязка плагина в рантайме
-         */
         void registerPlugin(PluginInterface* plugin) {
             if (!plugin) return;
 
             plugins_.push_back(plugin);
 
-            // Сортируем конвейер плагинов по приоритетам выполнения
             std::sort(plugins_.begin(), plugins_.end(), [](const PluginInterface* a, const PluginInterface* b) {
                 return a->priority < b->priority;
                 });
 
-            // Собираем актуальный контекст v0.3.0 для плагина
             EngineContext ctx = createCtx();
-
-            // Передаем контекст плагину. Если это плагин Окна или Рендера, он заменит собой 
-            // заглушки в g_SystemRegistry через вызов register_system() внутри своего on_load
             plugin->on_load(&ctx);
         }
 
@@ -110,21 +96,16 @@ namespace core {
                 float dt = std::chrono::duration<float>(current_time - last_time).count();
                 last_time = current_time;
 
-                // Защита от аномальных скачков дельты времени (например, при удержании рамки окна мысью)
                 if (dt > 0.1f) dt = 0.1f;
 
-                // Пересобираем контекст для каждого кадра на случай горячей рантайм-замены систем
-                EngineContext ctx = createCtx();
-                (void)ctx; // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Подавление ошибки unused-but-set-variable на Linux/Mac
-
-                // Прокачиваем кадр сквозь цепочку плагинов
+                // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Убрали неиспользуемый EngineContext из цикла.
+                // Прокачиваем кадр сквозь конвейер плагинов напрямую.
                 for (auto* plugin : plugins_) {
                     if (plugin->on_update) {
                         plugin->on_update(dt);
                     }
                 }
 
-                // Очищаем буфер отложенных событий в конце кадра
                 event_bus_.clear();
 
                 if (plugins_.empty()) {
@@ -148,21 +129,15 @@ namespace core {
         }
 
     private:
-        /**
-         * @brief Сборка актуального контекста "Материнской платы"
-         */
         EngineContext createCtx() {
             EngineContext ctx;
             ctx.ecs = &ecs_;
             ctx.event_bus = &event_bus_;
             ctx.job_system = &job_system_;
 
-            // Прямое приведение статических методов к C-указателям функций
             ctx.get_system = &SystemBridge::GetSystem;
             ctx.register_system = &SystemBridge::RegisterSystem;
 
-            // Зеркалируем указатели в Legacy-секции для старых плагинов (v0.2.0), 
-            // чтобы они продолжали прозрачно работать, забирая данные из общей мапы
             ctx.input = static_cast<InputAPI*>(SystemBridge::GetSystem(SYS_INPUT));
             ctx.audio = static_cast<AudioAPI*>(SystemBridge::GetSystem(SYS_AUDIO));
             ctx.renderer = static_cast<RenderAPI*>(SystemBridge::GetSystem(SYS_RENDERER));
