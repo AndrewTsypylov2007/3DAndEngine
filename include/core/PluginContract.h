@@ -1,6 +1,9 @@
 #pragma once
 #include <cstdint>
+<<<<<<< HEAD
 #include <stddef.h>
+=======
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
 
 // Опережающие объявления (ядро передает их как непрозрачные указатели)
 class EcsRegistry;
@@ -10,6 +13,7 @@ class JobSystem;
 namespace core {
 
     // ==============================================================================
+<<<<<<< HEAD
     // SERVICE LOCATOR & INTERFACE IDS (v0.3.0)
     // ==============================================================================
     // Используем уникальные ID для каждой подсистемы движка.
@@ -25,6 +29,14 @@ namespace core {
     // ЧИСТЫЕ C-ИНТЕРФЕЙСЫ (Стабильный ABI)
     // ==============================================================================
 
+=======
+    // ЧИСТЫЕ C-ИНТЕРФЕЙСЫ (Без vtable-зависимостей компиляторов)
+    // ==============================================================================
+
+    // Вместо виртуальных классов используем структуры с плоскими указателями на функции.
+    // Это гарантирует, что MSVC, GCC и Clang поймут их абсолютно одинаково.
+
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
     struct InputAPI {
         bool (*is_key_pressed)(int key_code);
         void (*get_mouse_pos)(double* x, double* y);
@@ -32,12 +44,17 @@ namespace core {
     };
 
     struct AudioAPI {
+<<<<<<< HEAD
         uint32_t(*load_sound)(const char* filepath);
+=======
+        uint32_t (*load_sound)(const char* filepath);
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
         void     (*play_sound)(uint32_t sound_id, float volume, bool loop);
         void     (*set_listener_pos)(float x, float y, float z);
     };
 
     struct RenderAPI {
+<<<<<<< HEAD
         void (*submit_command)(uint32_t command_type, const void* data_ptr, size_t data_size);
     };
 
@@ -49,13 +66,22 @@ namespace core {
 
     // ==============================================================================
     // УНИВЕРСАЛЬНЫЙ КОНТЕКСТ ЯДРА (Service Locator)
+=======
+        // Передача команд. Для безопасности void* data_ptr заменен на явный размер данных data_size
+        void (*submit_command)(uint32_t command_type, const void* data_ptr, size_t data_size);
+    };
+
+    // ==============================================================================
+    // ИСПРАВЛЕННЫЙ ЕДИНЫЙ КОНТЕКСТ ЯДРА
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
     // ==============================================================================
     struct EngineContext {
         // --- Прямой доступ к базовым сервисам ядра ---
         EcsRegistry* ecs;
-        EventBus* event_bus;
-        JobSystem* job_system;
+        EventBus*    event_bus;
+        JobSystem*   job_system;
 
+<<<<<<< HEAD
         // --- Legacy API (Для обратной совместимости с плагинами v0.2.0) ---
         InputAPI* input;
         AudioAPI* audio;
@@ -67,6 +93,12 @@ namespace core {
 
         // Позволяет плагину зарегистрировать свою функциональность в ядре
         void  (*register_system)(SystemID id, void* system_ptr);
+=======
+        // Таблицы функций для подсистем (если плагин не загружен — указатели внутри будут nullptr)
+        InputAPI*    input;
+        AudioAPI*    audio;
+        RenderAPI*   renderer; 
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
     };
 
     // ==============================================================================
@@ -76,6 +108,10 @@ namespace core {
         const char* name;
         uint32_t    priority;
 
+<<<<<<< HEAD
+=======
+        // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Передача контекста строго по указателю (EngineContext*)
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
         void (*on_load)(EngineContext* ctx);
         void (*on_update)(float delta_time);
         void (*on_unload)();
@@ -83,11 +119,21 @@ namespace core {
 
 } // namespace core
 
+<<<<<<< HEAD
 // Экспорт для динамических библиотек (C-Linkage)
+=======
+// Экспорт для динамических библиотек
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
 extern "C" {
 #if defined(_WIN32)
+    // Для Windows (MSVC / MinGW)
     __declspec(dllexport) core::PluginInterface* GetPluginAPI();
 #else
+<<<<<<< HEAD
+=======
+    // Для macOS (Clang) и Linux (GCC)
+    // Используем стандартный атрибут видимости для Unix систем
+>>>>>>> 28d53b185e478edcb19a5b99a606b2a5a10e3a5a
     __attribute__((visibility("default"))) core::PluginInterface* GetPluginAPI();
 #endif
 }
