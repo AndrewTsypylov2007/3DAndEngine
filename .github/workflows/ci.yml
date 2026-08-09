@@ -47,9 +47,9 @@ jobs:
     - name: Run Embedded Tests
       shell: bash
       run: |
-        # В v0.3.0 бинарник по умолчанию падает в папку bin/ в корне проекта
+        # ИСПРАВЛЕНО: Добавлен путь ./bin/Release/3DAndEngine.exe для Windows-воркера
         if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./bin/3DAndEngine.exe || ./build/bin/3DAndEngine.exe || ./build/Release/3DAndEngine.exe
+          ./bin/Release/3DAndEngine.exe || ./bin/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/Release/3DAndEngine.exe
         else
           chmod +x ./bin/3DAndEngine || true
           ./bin/3DAndEngine || ./build/bin/3DAndEngine
@@ -94,12 +94,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/bin/assets"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           
-          # 1. Копируем исполняемый файл из новой папки bin
-          $BinTarget = if ($IsWindows) { "bin/3DAndEngine.exe" } else { "bin/3DAndEngine" }
-          if (Test-Path $BinTarget) {
-              Copy-Item $BinTarget -Destination "dist/bin/" -Force
-          } else {
-              # Failsafe на случай если CMake положил в build
+          # 1. ИСПРАВЛЕНО: Кроссплатформенный поиск бинарника теперь проверяет папку bin/Release/
+          $BinSearchPaths = @("bin/Release/3DAndEngine*", "bin/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/Release/3DAndEngine*")
+          $Copied = $false
+          foreach ($Path in $BinSearchPaths) {
+              if (Test-Path $Path) {
+                  Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
+                  $Copied = $true
+                  break
+              }
+          }
+          
+          if (-not $Copied) {
+              Write-Warning "[CI] Исполняемый файл не найден в стандартных директориях. Запуск глубокого поиска..."
               Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
           }
           
