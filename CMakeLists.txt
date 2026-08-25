@@ -31,14 +31,16 @@ endforeach()
 # ==============================================================================
 if(MSVC)
     # /W4 - строгие предупреждения
+    # /WX - трактовать предупреждения как ошибки
     # /permissive- - строгое соответствие стандарту C++20
     # /Zc:preprocessor - стандартный C++20 препроцессор
-    # /wd4201 - анонимные структуры/объединения (нужно для векторной математики)
-    # /wd4189 - инициализированные, но неиспользуемые переменные (в ассертах тестов)
+    # /wd4201 - анонимные структуры/объединения
+    # /wd4189 - инициализированные, но неиспользуемые переменные (в тестах)
     # /wd4505 - неиспользуемые статические inline функции
+    # /wd4324 - структура дополнена байтами выравнивания (alignas(64) для кэш-линий)
     add_compile_options(
         /W4 /WX /permissive- /Zc:preprocessor
-        /wd4201 /wd4189 /wd4505
+        /wd4201 /wd4189 /wd4505 /wd4324
     )
     add_definitions(-D_CRT_SECURE_NO_WARNINGS -DNOMINMAX -DWIN32_LEAN_AND_MEAN)
 else()
@@ -71,9 +73,21 @@ if(NOT WIN32)
 endif()
 
 # ==============================================================================
-# 2. ОСНОВНОЙ РАНТАЙМ ДВИЖКА (Engine Runtime Executable)
+# 2. ПОСТ-БИЛД: АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ДЕРЕВА ПАПОК SDK
 # ==============================================================================
-file(GLOB_RECURSE ENGINE_SOURCES 
+# Создаем папки для "слепой" загрузки плагинов (.dll / .so), шейдеров и ресурсов
+add_custom_target(EngineSDKDirectories ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/plugins"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/shaders"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/assets"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/configs"
+    COMMENT "[3DAndEngine SDK] Initializing runtime directory structure (bin/plugins, bin/shaders, bin/assets)"
+)
+
+# ==============================================================================
+# 3. ОСНОВНОЙ РАНТАЙМ ДВИЖКА (Engine Runtime Executable)
+# ==============================================================================
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
@@ -83,10 +97,11 @@ file(GLOB_RECURSE ENGINE_SOURCES
 if(ENGINE_SOURCES)
     add_executable(3DAndEngine ${ENGINE_SOURCES})
     target_link_libraries(3DAndEngine PRIVATE 3DAndEngineCore)
+    add_dependencies(3DAndEngine EngineSDKDirectories)
 endif()
 
 # ==============================================================================
-# 3. ТАРГЕТ ЮНИТ-ТЕСТОВ (Core Unit Tests Runner)
+# 4. ТАРГЕТ ЮНИТ-ТЕСТОВ (Core Unit Tests Runner)
 # ==============================================================================
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_tests.cpp" OR EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/unit_tests.cpp")
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_tests.cpp")
@@ -97,22 +112,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/unit_tests.cpp" OR EXISTS "${CMAKE_
 
     add_executable(CoreUnitTests ${TEST_SOURCE})
     target_link_libraries(CoreUnitTests PRIVATE 3DAndEngineCore)
+    add_dependencies(CoreUnitTests EngineSDKDirectories)
 
     enable_testing()
     add_test(NAME AllCoreUnitTests COMMAND CoreUnitTests)
 endif()
-
-# ==============================================================================
-# 4. ПОСТ-БИЛД: АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ДЕРЕВА ПАПОК SDK
-# ==============================================================================
-# Создаем папки для "слепой" загрузки плагинов (.dll / .so), шейдеров и ресурсов
-add_custom_target(EngineSDKDirectories ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/plugins"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/shaders"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/assets"
-    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_SOURCE_DIR}/bin/configs"
-    COMMENT "[3DAndEngine SDK] Initializing runtime directory structure (bin/plugins, bin/shaders, bin/assets)"
-)
 
 # ==============================================================================
 # СТАТУС КОНФИГУРАЦИИ
