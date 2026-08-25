@@ -143,10 +143,8 @@ struct Velocity {
 // 1. ТЕСТ 64-БИТНОГО ХЕШИРОВАНИЯ
 // ==============================================================================
 void test_commercial_hashing() {
-    using namespace core;
-
     constexpr uint64_t hash1 = core::hash_str("renderer/main_pass");
-    constexpr uint64_t hash2 = "renderer/main_pass"_id;
+    constexpr uint64_t hash2 = core::operator""_id("renderer/main_pass", 18);
 
     assert(hash1 == hash2);
     assert(hash1 > 0xFFFFFFFFull);
@@ -207,14 +205,13 @@ void test_hybrid_eventbus() {
 }
 
 // ==============================================================================
-// 4. ТЕСТ SERVICE LOCATOR (ОШИБКА БЫЛА ЗДЕСЬ - ТЕПЕРЬ ПОЛНОСТЬЮ ИСПРАВЛЕНА)
+// 4. ТЕСТ SERVICE LOCATOR
 // ==============================================================================
 void test_service_locator() {
     using namespace core;
 
     struct MockRenderAPI { int version = 30; } mock_render;
 
-    // И SystemBridge, и sys_id теперь объявлены выше и известны компилятору
     SystemBridge::RegisterSystem(sys_id::Renderer, &mock_render);
 
     void* retrieved = SystemBridge::GetSystem(sys_id::Renderer);
@@ -225,7 +222,7 @@ void test_service_locator() {
 }
 
 // ==============================================================================
-// ТОЧКА ВХОДА
+// ТОЧКА ВХОДА ТЕСТОВ (Вызывается из main.cpp)
 // ==============================================================================
 void run_all_core_tests() {
     std::cout << "\n=== Starting 3DAndEngine Core Unit Tests v0.4.0 ===\n";
@@ -243,9 +240,4 @@ void run_all_core_tests() {
         std::cerr << "Reason: " << e.what() << "\n";
         throw;
     }
-}
-
-int main() {
-    run_all_core_tests();
-    return 0;
 }
