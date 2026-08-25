@@ -49,7 +49,7 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             # Поиск бинарника 3DAndEngine.exe на Windows
             EXE_PATH=""
-            for CANDIDATE in "./bin/3DAndEngine.exe" "./bin/Release/3DAndEngine.exe" "./build/bin/3DAndEngine.exe" "./build/bin/Release/3DAndEngine.exe" "./build/Release/3DAndEngine.exe" "./build/3DAndEngine.exe"; do
+            for CANDIDATE in "./bin/Release/3DAndEngine.exe" "./bin/3DAndEngine.exe" "./build/bin/Release/3DAndEngine.exe" "./build/bin/3DAndEngine.exe" "./build/Release/3DAndEngine.exe" "./build/3DAndEngine.exe"; do
               if [ -f "$CANDIDATE" ]; then
                 EXE_PATH="$CANDIDATE"
                 break
@@ -57,7 +57,7 @@ jobs:
             done
             
             if [ -z "$EXE_PATH" ]; then
-              echo "[CI ERROR] Binary 3DAndEngine.exe not found! Listing workspace files:"
+              echo "[CI ERROR] Binary 3DAndEngine.exe not found! Listing files:"
               find . -name "*.exe" || true
               exit 1
             fi
@@ -67,7 +67,7 @@ jobs:
           else
             # Поиск бинарника 3DAndEngine на Linux и macOS
             EXE_PATH=""
-            for CANDIDATE in "./bin/3DAndEngine" "./build/bin/3DAndEngine" "./build/3DAndEngine"; do
+            for CANDIDATE in "./bin/3DAndEngine" "./bin/Release/3DAndEngine" "./build/bin/3DAndEngine" "./build/3DAndEngine"; do
               if [ -f "$CANDIDATE" ]; then
                 EXE_PATH="$CANDIDATE"
                 break
@@ -123,7 +123,7 @@ jobs:
         run: |
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           
-          # Создаем структуру каталогов для SDK v0.4.0
+          # Создаем дерево каталогов для игрового SDK v0.4.0
           New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
           New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
           New-Item -ItemType Directory -Force -Path "dist/bin/assets"
@@ -131,7 +131,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 1. Поиск и копирование исполняемых файлов
+          # 1. Копирование исполняемых файлов
           $BinSearchPaths = @(
             "bin/Release/3DAndEngine*", 
             "bin/3DAndEngine*", 
@@ -146,18 +146,18 @@ jobs:
               }
           }
           
-          # Глубокий поиск бинарников при необходимости
+          # Запасной поиск бинарников, если они в нестандартной папке
           if ((Get-ChildItem -Path "dist/bin" -File).Count -eq 0) {
               Write-Warning "[CI] Running deep scan for engine binaries..."
               Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          # 2. Копирование всех заголовочных файлов из include/core/
+          # 2. Копирование всех заголовочных файлов ядра из include/core/
           if (Test-Path "include/core") {
               Get-ChildItem -Path "include/core/*" -Include "*.h", "*.hpp" | Copy-Item -Destination "dist/include/core/" -Force
           }
           
-          # 3. Копирование тестов и документации SDK
+          # 3. Копирование документации и исходного кода тестов
           $DocFiles = @("README*", "LICENSE*", "PLUGIN_GUIDE*", "RELEASE_NOTES*")
           foreach ($Doc in $DocFiles) {
               Get-ChildItem -Path $Doc | Copy-Item -Destination "dist/" -Force
@@ -167,7 +167,7 @@ jobs:
               Copy-Item "src/UnitTestsMain.cpp" -Destination "dist/" -Force
           }
 
-          # 4. Архивирование в zip
+          # 4. Создание zip-архива SDK
           Set-Location dist
           $OsName = "${{ matrix.os }}".Replace("-latest", "")
           $ZipName = "../3DAndEngine-SDK-v0.4.0-$OsName.zip"
