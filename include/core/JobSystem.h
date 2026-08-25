@@ -10,7 +10,23 @@
 #include <cassert>
 #include <chrono>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#elif defined(__i386__) || defined(__x86_64__)
+#include <immintrin.h>
+#endif
+
 namespace core {
+
+    inline void cpu_pause() noexcept {
+#if defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__)
+        _mm_pause();
+#elif defined(__arm__) || defined(__aarch64__)
+        asm volatile("yield" ::: "memory");
+#else
+        std::this_thread::yield();
+#endif
+    }
 
     // ==============================================================================
     // СЧЕТЧИК СИНХРОНИЗАЦИИ (Counter-based synchronization)
@@ -248,7 +264,6 @@ namespace core {
                     execute(job);
                 }
                 else {
-                    // Гибридный Spin-Wait перед погружением в сон
                     bool found = false;
                     for (int spin = 0; spin < 64; ++spin) {
                         if (queue_.pop(job)) {
@@ -256,14 +271,12 @@ namespace core {
                             found = true;
                             break;
                         }
-#if defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__)
-                        _mm_pause(); // Снижает энергопотребление конвейера CPU
-#endif
+                        // ИСПРАВЛЕНО: Безопасный вызов на любой платформе (x86/x64/ARM/Linux/Windows)
+                        core::cpu_pause();
                     }
 
                     if (found) continue;
 
-                    // Если работы так и не появилось — засыпаем на CV
                     std::unique_lock<std::mutex> lock(cv_mutex_);
                     cv_.wait_for(lock, std::chrono::milliseconds(2), [this]() {
                         return !running_.load(std::memory_order_relaxed) || (active_jobs_.load(std::memory_order_relaxed) > 0);

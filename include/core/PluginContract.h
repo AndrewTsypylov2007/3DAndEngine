@@ -176,17 +176,12 @@ namespace core {
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-    // Стандартная точка входа для загрузки плагина
     ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI();
-
 #ifdef __cplusplus
 }
 #endif
 
-/**
- * @brief Удобный макрос для объявления плагина в 1 строку внутри DLL
- */
+
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) \
     extern "C" { \
         ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { \
