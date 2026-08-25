@@ -1,8 +1,5 @@
 #pragma once
 
-// ==============================================================================
-// 1. ПЛАТФОРМЕННЫЕ ЗАГОЛОВОЧНЫЕ ФАЙЛЫ
-// ==============================================================================
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -29,9 +26,6 @@ namespace core::platform {
 
     using LibHandle = void*;
 
-    /**
-     * @brief Автоматическая коррекция расширений и нормализация путей под текущую ОС
-     */
     inline std::filesystem::path fix_lib_path(const std::filesystem::path& raw_path) {
         std::filesystem::path p = raw_path;
 #if defined(_WIN32)
@@ -44,9 +38,6 @@ namespace core::platform {
         return p;
     }
 
-    /**
-     * @brief Получение директории исполняемого файла ядра (полезно для папки plugins/)
-     */
     inline std::filesystem::path get_executable_dir() {
 #if defined(_WIN32)
         wchar_t path[MAX_PATH] = { 0 };
@@ -59,9 +50,9 @@ namespace core::platform {
         uint32_t size = sizeof(path);
         if (_NSGetExecutablePath(path, &size) == 0) {
             std::error_code ec;
-            auto canonical_path = std::filesystem::weakly_canonical(path, ec);
+            auto p = std::filesystem::weakly_canonical(path, ec);
             if (!ec) {
-                return canonical_path.parent_path();
+                return p.parent_path();
             }
             return std::filesystem::path(path).parent_path();
         }
@@ -76,10 +67,6 @@ namespace core::platform {
         return std::filesystem::current_path();
     }
 
-    /**
-     * @brief SharedLibrary (v0.4.0 AAA Commercial Standard)
-     * RAII-обертка для безопасной загрузки/выгрузки DLL/SO с поддержкой Unicode.
-     */
     class SharedLibrary {
     private:
         LibHandle             handle_ = nullptr;
@@ -90,42 +77,37 @@ namespace core::platform {
             : path_(fix_lib_path(filepath)) {
 
 #if defined(_WIN32)
-            // Поддержка Unicode путей (LoadLibraryW)
             handle_ = static_cast<LibHandle>(::LoadLibraryW(path_.wstring().c_str()));
             if (!handle_) {
                 DWORD err_code = ::GetLastError();
                 std::string err_msg = std::system_category().message(err_code);
-                throw std::runtime_error("[Platform::SharedLibrary] Ошибка загрузки DLL: " +
-                    path_.string() + " (WinError " + std::to_string(err_code) + ": " + err_msg + ")");
+                throw std::runtime_error("[Platform::SharedLibrary] DLL load error: " +
+                    path_.string() + " (" + std::to_string(err_code) + ": " + err_msg + ")");
             }
 #else
-            // RTLD_DEEPBIND изолирует зависимости плагинов от конфликтов символов в Linux
 #if defined(__linux__) && defined(RTLD_DEEPBIND)
             int flags = RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND;
 #else
             int flags = RTLD_NOW | RTLD_LOCAL;
 #endif
-
-            ::dlerror(); // Сброс буфера ошибок
+            ::dlerror();
             handle_ = ::dlopen(path_.c_str(), flags);
             if (!handle_) {
                 const char* error_str = ::dlerror();
-                throw std::runtime_error("[Platform::SharedLibrary] Ошибка загрузки библиотеки: " +
-                    path_.string() + " (" + (error_str ? error_str : "Unknown dlopen error") + ")");
+                throw std::runtime_error("[Platform::SharedLibrary] Library load error: " +
+                    path_.string() + " (" + (error_str ? error_str : "unknown error") + ")");
             }
 #endif
-            std::cout << "[Platform::SharedLibrary] Модуль успешно загружен: " << path_.string() << std::endl;
+            std::cout << "[Platform::SharedLibrary] Module loaded: " << path_.string() << std::endl;
         }
 
         ~SharedLibrary() {
             unload();
         }
 
-        // Запрет копирования во избежание двойного освобождения хэндла
         SharedLibrary(const SharedLibrary&) = delete;
         SharedLibrary& operator=(const SharedLibrary&) = delete;
 
-        // Перемещение владения ресурсом
         SharedLibrary(SharedLibrary&& other) noexcept
             : handle_(other.handle_), path_(std::move(other.path_)) {
             other.handle_ = nullptr;
@@ -141,14 +123,9 @@ namespace core::platform {
             return *this;
         }
 
-        /**
-         * @brief Безопасный поиск функции без броска исключений (No-Throw)
-         * Возвращает nullptr, если функция отсутствует (удобно для опциональных хуков).
-         */
         template<typename T>
         T try_get_function(const std::string& name) const noexcept {
             if (!handle_) return nullptr;
-
             void* sym = nullptr;
 #if defined(_WIN32)
             sym = reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle_), name.c_str()));
@@ -158,15 +135,12 @@ namespace core::platform {
             return reinterpret_cast<T>(sym);
         }
 
-        /**
-         * @brief Строгий поиск обязательного символа (бросает исключение при отсутствии)
-         */
         template<typename T>
         T get_function(const std::string& name) const {
             T func = try_get_function<T>(name);
             if (!func) {
-                throw std::runtime_error("[Platform::SharedLibrary] Символ '" + name +
-                    "' не найден в модуле " + path_.string());
+                throw std::runtime_error("[Platform::SharedLibrary] Symbol '" + name +
+                    "' not found in " + path_.string());
             }
             return func;
         }
@@ -188,10 +162,6 @@ namespace core::platform {
             }
         }
     };
-
-    // ==========================================================================
-    // LEGACY C-API (Полная обратная совместимость со старыми вызовами ядра)
-    // ==========================================================================
 
     inline LibHandle load_library(const std::string& path) {
         std::filesystem::path fixed = fix_lib_path(path);

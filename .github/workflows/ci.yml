@@ -11,7 +11,7 @@ on:
 
 jobs:
   # ============================================================================
-  # 1. СБОРКА И ТЕСТИРОВАНИЕ НА ВСЕХ ПЛАТФОРМАХ
+  # 1. СБОРКА И ТЕСТИРОВАНИЕ НА ВСЕХ ПЛАТФОРМАХ (Windows, Linux, macOS)
   # ============================================================================
   build_and_test:
     name: Build & Test Core (${{ matrix.os }})
@@ -47,10 +47,12 @@ jobs:
 
       - name: Run Embedded Engine & Unit Tests Binary
         shell: bash
+        env:
+          CI: "1"
         run: |
           echo "[CI] Executing standalone tests..."
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Проверяем возможные пути размещения бинарников на Windows MSVC
+            # Поиск и запуск исполняемых файлов на Windows
             if [ -f "./bin/Release/CoreUnitTests.exe" ]; then
               ./bin/Release/CoreUnitTests.exe
             elif [ -f "./bin/CoreUnitTests.exe" ]; then
@@ -58,9 +60,9 @@ jobs:
             elif [ -f "./build/CoreUnitTests.exe" ]; then
               ./build/CoreUnitTests.exe
             elif [ -f "./bin/Release/3DAndEngine.exe" ]; then
-              ./bin/Release/3DAndEngine.exe
+              ./bin/Release/3DAndEngine.exe --ci
             elif [ -f "./bin/3DAndEngine.exe" ]; then
-              ./bin/3DAndEngine.exe
+              ./bin/3DAndEngine.exe --ci
             fi
           else
             # Linux & macOS
@@ -70,7 +72,9 @@ jobs:
             elif [ -f "./build/CoreUnitTests" ]; then
               ./build/CoreUnitTests
             elif [ -f "./bin/3DAndEngine" ]; then
-              ./bin/3DAndEngine
+              ./bin/3DAndEngine --ci
+            elif [ -f "./build/3DAndEngine" ]; then
+              ./build/3DAndEngine --ci
             fi
           fi
 
@@ -78,7 +82,7 @@ jobs:
   # 2. СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗНОГО SDK БАНДЛА (v0.4.0 Commercial Package)
   # ============================================================================
   release_build:
-    name: Package and Publish SDK v0.4.0
+    name: Package and Publish SDK v0.4.0 (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [build_and_test]
     if: github.event_name == 'release'
@@ -123,7 +127,8 @@ jobs:
             "build/bin/Release/3DAndEngine*", 
             "build/Release/3DAndEngine*",
             "bin/Release/CoreUnitTests*",
-            "bin/CoreUnitTests*"
+            "bin/CoreUnitTests*",
+            "build/CoreUnitTests*"
           )
           
           foreach ($Path in $BinSearchPaths) {
@@ -159,11 +164,11 @@ jobs:
               }
           }
           
-          # Копируем unit_tests.cpp для конечных разработчиков SDK
+          # Копируем тесты и документацию для разработчиков SDK
           if (Test-Path "tests/unit_tests.cpp") {
               Copy-Item "tests/unit_tests.cpp" -Destination "dist/" -Force
-          } elseif (Test-Path "unit_tests.cpp") {
-              Copy-Item "unit_tests.cpp" -Destination "dist/" -Force
+          } elseif (Test-Path "src/UnitTestsMain.cpp") {
+              Copy-Item "src/UnitTestsMain.cpp" -Destination "dist/" -Force
           }
 
           # 3. Архивирование в zip

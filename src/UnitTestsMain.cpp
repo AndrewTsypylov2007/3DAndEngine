@@ -9,10 +9,8 @@
 #include <string>
 #include <string_view>
 #include <cstdint>
+#include <atomic>
 
-// ==============================================================================
-// ТЕСТОВЫЕ СТРУКТУРЫ ДАННЫХ ДЛЯ ТЕСТОВ
-// ==============================================================================
 struct TestTransform {
     float x{ 0.0f };
     float y{ 0.0f };
@@ -23,9 +21,6 @@ struct TestVelocity {
     float vy{ 0.0f };
 };
 
-// ==============================================================================
-// 1. ТЕСТ 64-БИТНОГО FNV-1a ХЕШИРОВАНИЯ
-// ==============================================================================
 void test_commercial_hashing() {
     using namespace core;
 
@@ -38,9 +33,6 @@ void test_commercial_hashing() {
     std::cout << "[Test Passed] 64-bit FNV-1a Hashing works.\n";
 }
 
-// ==============================================================================
-// 2. ТЕСТ РЕАКТИВНОГО PAGED SPARSE-SET ECS
-// ==============================================================================
 void test_reactive_ecs() {
     using namespace core;
 
@@ -68,9 +60,6 @@ void test_reactive_ecs() {
     std::cout << "[Test Passed] Reactive Paged Sparse-Set ECS & Listeners work.\n";
 }
 
-// ==============================================================================
-// 3. ТЕСТ ГИБРИДНОЙ ШИНЫ СОБЫТИЙ
-// ==============================================================================
 void test_hybrid_eventbus() {
     using namespace core;
 
@@ -90,9 +79,6 @@ void test_hybrid_eventbus() {
     std::cout << "[Test Passed] Hybrid EventBus (Immediate/Buffered) works.\n";
 }
 
-// ==============================================================================
-// 4. ТЕСТ МНОГОПОТОЧНОЙ JOB SYSTEM
-// ==============================================================================
 void test_job_system() {
     using namespace core;
 
@@ -115,9 +101,6 @@ void test_job_system() {
     std::cout << "[Test Passed] Multithreaded Lock-Free Job System works.\n";
 }
 
-// ==============================================================================
-// ТОЧКА ВХОДА ТЕСТОВ (Вызывается из main.cpp)
-// ==============================================================================
 void run_all_core_tests() {
     std::cout << "\n=== Starting 3DAndEngine Core Unit Tests v0.4.0 ===\n";
 

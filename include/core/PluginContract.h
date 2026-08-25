@@ -150,5 +150,5 @@ extern "C" {
 }
 #endif
 
-// Экспорт фабрики плагина в одну строчку (предотвращает warning backslash-newline)
+// Экспорт фабрики плагина (без обратных слэшей на конце файла)
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) extern "C" { ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { return &PluginStructInstance; } }
