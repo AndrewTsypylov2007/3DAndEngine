@@ -6,15 +6,12 @@
 
 namespace core {
 
-    // Forward-декларации подсистем ядра для EngineContext
     class EcsRegistry;
     class EventBus;
     class JobSystem;
 
-    // Константа бинарного контракта ABI (0x00040000 = v0.4.0)
     constexpr uint32_t ENGINE_ABI_VERSION = 0x00040000;
 
-    // Идентификатор слотов данных кадра
     using FrameDataId = uint64_t;
 
     enum class LogLevel : uint32_t {
@@ -24,10 +21,6 @@ namespace core {
         Error = 3,
         Fatal = 4
     };
-
-    // =========================================================================
-    // БАЗОВЫЕ C-ABI ИНТЕРФЕЙСЫ ПОДСИСТЕМ
-    // =========================================================================
 
     struct LogAPI {
         void (*log_message)(LogLevel level, const char* channel, const char* message);
@@ -63,9 +56,6 @@ namespace core {
         bool  (*file_exists)(const char* path);
     };
 
-    // =========================================================================
-    // ЕДИНЫЙ КОНТЕКСТ ДВИЖКА (EngineContext)
-    // =========================================================================
     struct EngineContext {
         EcsRegistry* ecs = nullptr;
         EventBus* event_bus = nullptr;
@@ -77,11 +67,9 @@ namespace core {
         AssetAPI* assets = nullptr;
         LogAPI* logger = nullptr;
 
-        // Сервис-локатор ядра
         void* (*get_system)(SystemID id) = nullptr;
         void  (*register_system)(SystemID id, void* system_ptr) = nullptr;
 
-        // Обмен покадровыми данными между плагинами (Frame Blackboard)
         void* (*get_frame_data)(FrameDataId id) = nullptr;
         void  (*set_frame_data)(FrameDataId id, void* data_ptr) = nullptr;
 
@@ -112,16 +100,12 @@ namespace core {
         }
     };
 
-    // =========================================================================
-    // ГЛАВНЫЙ БИНАРНЫЙ ИНТЕРФЕЙС ПЛАГИНА (Strict C-ABI)
-    // =========================================================================
     struct PluginInterface {
         const char* name;
         const char* version;
         uint32_t    abi_version;
         uint32_t    priority;
 
-        // Жизненный цикл плагина
         void (*on_load)(EngineContext* ctx);
         void (*on_fixed_update)(float fixed_dt);
         void (*on_update)(float delta_time);
@@ -131,9 +115,6 @@ namespace core {
 
 } // namespace core
 
-// =============================================================================
-// МАКРОСЫ ЭКСПОРТА ТОЧКИ ВХОДА ПЛАГИНА
-// =============================================================================
 #if defined(_WIN32)
 #define ENGINE_PLUGIN_EXPORT __declspec(dllexport)
 #elif defined(__GNUC__) || defined(__clang__)
@@ -150,5 +131,4 @@ extern "C" {
 }
 #endif
 
-// Экспорт фабрики плагина (без обратных слэшей на конце файла)
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) extern "C" { ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { return &PluginStructInstance; } }

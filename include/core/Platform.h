@@ -39,32 +39,33 @@ namespace core::platform {
     }
 
     inline std::filesystem::path get_executable_dir() {
+        std::error_code ec;
 #if defined(_WIN32)
         wchar_t path[MAX_PATH] = { 0 };
         DWORD length = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
         if (length > 0) {
-            return std::filesystem::path(path).parent_path();
+            auto p = std::filesystem::path(path);
+            return p.parent_path();
         }
 #elif defined(__APPLE__)
         char path[1024] = { 0 };
         uint32_t size = sizeof(path);
         if (_NSGetExecutablePath(path, &size) == 0) {
-            std::error_code ec;
-            auto p = std::filesystem::weakly_canonical(path, ec);
-            if (!ec) {
-                return p.parent_path();
-            }
-            return std::filesystem::path(path).parent_path();
+            std::filesystem::path p(path);
+            auto parent = p.parent_path();
+            if (!parent.empty()) return parent;
         }
 #else
         char path[1024] = { 0 };
         ssize_t count = readlink("/proc/self/exe", path, sizeof(path) - 1);
-        if (count != -1) {
+        if (count > 0) {
             path[count] = '\0';
-            return std::filesystem::path(path).parent_path();
+            std::filesystem::path p(path);
+            auto parent = p.parent_path();
+            if (!parent.empty()) return parent;
         }
 #endif
-        return std::filesystem::current_path();
+        return std::filesystem::current_path(ec);
     }
 
     class SharedLibrary {
@@ -98,7 +99,6 @@ namespace core::platform {
                     path_.string() + " (" + (error_str ? error_str : "unknown error") + ")");
             }
 #endif
-            std::cout << "[Platform::SharedLibrary] Module loaded: " << path_.string() << std::endl;
         }
 
         ~SharedLibrary() {
