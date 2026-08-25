@@ -9,8 +9,11 @@
 #include <cstdint>
 #include <cassert>
 #include <chrono>
+#include <memory>
 
 #if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // Подавление информационного варнинга о padding для alignas(64)
 #include <intrin.h>
 #elif defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
@@ -18,6 +21,7 @@
 
 namespace core {
 
+    // Кроссплатформенная пауза конвейера CPU
     inline void cpu_pause() noexcept {
 #if defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__)
         _mm_pause();
@@ -28,42 +32,39 @@ namespace core {
 #endif
     }
 
-    // ==============================================================================
-    // СЧЕТЧИК СИНХРОНИЗАЦИИ (Counter-based synchronization)
-    // ==============================================================================
     struct JobCounter {
-        std::atomic<uint32_t> remaining{ 0 };
+        std::atomic<uint32_t> count{ 0 };
     };
 
     struct Job {
-        void (*function)(void*) = nullptr;
-        void* data = nullptr;
-        JobCounter* counter = nullptr;
+        std::function<void()> task;
+        JobCounter* counter{ nullptr };
     };
 
-    // ==============================================================================
-    // LOCK-FREE BOUNDED MPMC ОЧЕРЕДЬ (Dmitry Vyukov Algorithm)
-    // ==============================================================================
-    template<typename T, size_t Capacity>
+    // =========================================================================
+    // LOCK-FREE BOUNDED MPMC QUEUE (Vyukov Algorithm)
+    // Хранилище слотов в динамической памяти (куче)
+    // =========================================================================
+    template<typename T, size_t Capacity = 4096>
     class MpmcBoundedQueue {
-        static_assert((Capacity >= 2) && ((Capacity& (Capacity - 1)) == 0),
-            "Размер очереди Capacity обязан быть степенью двойки!");
-
-    private:
-        struct Node {
+        static_assert((Capacity& (Capacity - 1)) == 0, "Capacity must be a power of 2");
+    public:
+        struct Slot {
             std::atomic<size_t> sequence;
-            T data;
+            T                   storage;
         };
 
-        static constexpr size_t BufferMask = Capacity - 1;
-        Node buffer_[Capacity];
+        static constexpr size_t BUFFER_MASK = Capacity - 1;
 
-        // Разделяем счетчики по разным кэш-линиям (64 байта) для исключения False Sharing
+    private:
+        std::unique_ptr<Slot[]>         buffer_;
+
         alignas(64) std::atomic<size_t> enqueue_pos_{ 0 };
         alignas(64) std::atomic<size_t> dequeue_pos_{ 0 };
 
     public:
-        MpmcBoundedQueue() {
+        MpmcBoundedQueue()
+            : buffer_(std::make_unique<Slot[]>(Capacity)) {
             for (size_t i = 0; i < Capacity; ++i) {
                 buffer_[i].sequence.store(i, std::memory_order_relaxed);
             }
@@ -73,71 +74,80 @@ namespace core {
         MpmcBoundedQueue(const MpmcBoundedQueue&) = delete;
         MpmcBoundedQueue& operator=(const MpmcBoundedQueue&) = delete;
 
-        bool push(const T& item) {
+        bool push(const T& data) {
+            Slot* slot = nullptr;
             size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
-            for (;;) {
-                Node& node = buffer_[pos & BufferMask];
-                size_t seq = node.sequence.load(std::memory_order_acquire);
-                intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
 
-                if (diff == 0) {
+            for (;;) {
+                slot = &buffer_[pos & BUFFER_MASK];
+                size_t seq = slot->sequence.load(std::memory_order_acquire);
+                intptr_t dif = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
+
+                if (dif == 0) {
                     if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
-                        node.data = item;
-                        // Барьер release гарантирует: данные записаны до обновления sequence
-                        node.sequence.store(pos + 1, std::memory_order_release);
-                        return true;
+                        break;
                     }
                 }
-                else if (diff < 0) {
-                    // Очередь заполнена
+                else if (dif < 0) {
                     return false;
                 }
                 else {
                     pos = enqueue_pos_.load(std::memory_order_relaxed);
                 }
             }
+
+            slot->storage = data;
+            slot->sequence.store(pos + 1, std::memory_order_release);
+            return true;
         }
 
-        bool pop(T& item) {
+        bool pop(T& result) {
+            Slot* slot = nullptr;
             size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
-            for (;;) {
-                Node& node = buffer_[pos & BufferMask];
-                size_t seq = node.sequence.load(std::memory_order_acquire);
-                intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
 
-                if (diff == 0) {
+            for (;;) {
+                slot = &buffer_[pos & BUFFER_MASK];
+                size_t seq = slot->sequence.load(std::memory_order_acquire);
+                intptr_t dif = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
+
+                if (dif == 0) {
                     if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
-                        item = node.data;
-                        // Освобождаем ячейку для следующего цикла записи
-                        node.sequence.store(pos + BufferMask + 1, std::memory_order_release);
-                        return true;
+                        break;
                     }
                 }
-                else if (diff < 0) {
-                    // Очередь пуста
+                else if (dif < 0) {
                     return false;
                 }
                 else {
                     pos = dequeue_pos_.load(std::memory_order_relaxed);
                 }
             }
+
+            result = std::move(slot->storage);
+            slot->sequence.store(pos + BUFFER_MASK + 1, std::memory_order_release);
+            return true;
+        }
+
+        bool empty() const {
+            size_t deq = dequeue_pos_.load(std::memory_order_relaxed);
+            size_t enq = enqueue_pos_.load(std::memory_order_relaxed);
+            return deq >= enq;
         }
     };
 
-    // ==============================================================================
-    // ВЫСОКОПРОИЗВОДИТЕЛЬНАЯ СИСТЕМА ДЖОБОВ (v0.3.5 Commercial Standard)
-    // ==============================================================================
+    // =========================================================================
+    // MULTITHREADED JOB SYSTEM
+    // =========================================================================
     class JobSystem {
     private:
-        static constexpr size_t QUEUE_CAPACITY = 4096;
-        MpmcBoundedQueue<Job, QUEUE_CAPACITY> queue_;
+        std::vector<std::thread>        workers_;
+        MpmcBoundedQueue<Job, 4096>     queue_;
 
-        std::vector<std::thread> workers_;
-        std::atomic<bool>        running_{ false };
-        std::atomic<uint32_t>    active_jobs_{ 0 };
+        std::atomic<bool>               running_{ false };
+        std::atomic<uint32_t>           active_jobs_{ 0 };
 
-        std::mutex               cv_mutex_;
-        std::condition_variable  cv_;
+        std::mutex                      cv_mutex_;
+        std::condition_variable         cv_;
 
     public:
         JobSystem() = default;
@@ -149,81 +159,68 @@ namespace core {
         JobSystem(const JobSystem&) = delete;
         JobSystem& operator=(const JobSystem&) = delete;
 
-        void initialize(uint32_t user_thread_count = 0) {
+        void initialize(uint32_t thread_count = 0) {
             if (running_.load(std::memory_order_acquire)) return;
-            running_.store(true, std::memory_order_release);
 
-            uint32_t threads_count = user_thread_count;
-            if (threads_count == 0) {
-                threads_count = std::thread::hardware_concurrency();
-                // 1 ядро под ОС, 1 ядро под Main Thread движка
-                if (threads_count > 2) threads_count -= 2;
-                if (threads_count == 0) threads_count = 1;
+            if (thread_count == 0) {
+                uint32_t hw = std::thread::hardware_concurrency();
+                thread_count = (hw > 1) ? (hw - 1) : 1;
             }
 
-            workers_.reserve(threads_count);
-            for (uint32_t i = 0; i < threads_count; ++i) {
-                workers_.emplace_back([this]() {
-                    workerLoop();
-                    });
+            running_.store(true, std::memory_order_release);
+            workers_.reserve(thread_count);
+
+            for (uint32_t i = 0; i < thread_count; ++i) {
+                workers_.emplace_back(&JobSystem::workerLoop, this);
             }
         }
 
-        /**
-         * @brief Добавить задачу в систему (Потокобезопасно из любого потока)
-         */
-        bool push(void (*func)(void*), void* data = nullptr, JobCounter* counter = nullptr) {
-            if (!func) return false;
+        void run(const std::function<void()>& task, JobCounter* counter = nullptr) {
+            if (!task) return;
 
             if (counter) {
-                counter->remaining.fetch_add(1, std::memory_order_relaxed);
+                counter->count.fetch_add(1, std::memory_order_relaxed);
             }
             active_jobs_.fetch_add(1, std::memory_order_relaxed);
 
-            Job job{ func, data, counter };
-            if (!queue_.push(job)) {
-                // Если очередь переполнена, отменяем инкременты
-                if (counter) {
-                    counter->remaining.fetch_sub(1, std::memory_order_relaxed);
-                }
-                active_jobs_.fetch_sub(1, std::memory_order_relaxed);
-                return false;
-            }
+            Job job{ task, counter };
 
-            // Будим одного воркера
-            cv_.notify_one();
-            return true;
+            if (!queue_.push(job)) {
+                execute(job);
+            }
+            else {
+                cv_.notify_one();
+            }
         }
 
-        /**
-         * @brief Ожидание завершения группы задач с помощью текущего потока (Work Assisting)
-         */
-        void wait(const JobCounter* counter) {
+        void parallel_for(size_t count, size_t chunk_size, const std::function<void(size_t start, size_t end)>& loop_body) {
+            if (count == 0 || !loop_body) return;
+
+            if (chunk_size == 0) chunk_size = 1;
+            JobCounter counter;
+
+            for (size_t i = 0; i < count; i += chunk_size) {
+                size_t start = i;
+                size_t end = std::min(i + chunk_size, count);
+
+                run([start, end, &loop_body]() {
+                    loop_body(start, end);
+                    }, &counter);
+            }
+
+            wait(&counter);
+        }
+
+        void wait(JobCounter* counter) {
             if (!counter) return;
 
-            while (counter->remaining.load(std::memory_order_acquire) > 0) {
+            while (counter->count.load(std::memory_order_acquire) > 0) {
                 Job job;
                 if (queue_.pop(job)) {
                     execute(job);
                 }
                 else {
-                    // Короткая пауза для снятия нагрузки на шину памяти
-                    std::this_thread::yield();
-                }
-            }
-        }
-
-        /**
-         * @brief Ожидание завершения вообще всех задач в системе
-         */
-        void waitAll() {
-            while (active_jobs_.load(std::memory_order_acquire) > 0) {
-                Job job;
-                if (queue_.pop(job)) {
-                    execute(job);
-                }
-                else {
-                    std::this_thread::yield();
+                    core::cpu_pause();
                 }
             }
         }
@@ -232,29 +229,40 @@ namespace core {
             if (!running_.load(std::memory_order_acquire)) return;
 
             running_.store(false, std::memory_order_release);
-            cv_.notify_all(); // Будим всех воркеров для безопасного выхода
+            cv_.notify_all();
 
             for (auto& worker : workers_) {
                 if (worker.joinable()) {
                     worker.join();
                 }
             }
+
             workers_.clear();
+
+            Job job;
+            while (queue_.pop(job)) {
+                execute(job);
+            }
         }
 
-        uint32_t getActiveJobsCount() const {
-            return active_jobs_.load(std::memory_order_relaxed);
+        uint32_t workerCount() const {
+            return static_cast<uint32_t>(workers_.size());
         }
 
     private:
-        void execute(const Job& job) {
-            if (job.function) {
-                job.function(job.data);
+        void execute(Job& job) {
+            if (job.task) {
+                try {
+                    job.task();
+                }
+                catch (...) {
+                }
             }
+
             if (job.counter) {
-                job.counter->remaining.fetch_sub(1, std::memory_order_release);
+                job.counter->count.fetch_sub(1, std::memory_order_release);
             }
-            active_jobs_.fetch_sub(1, std::memory_order_relaxed);
+            active_jobs_.fetch_sub(1, std::memory_order_release);
         }
 
         void workerLoop() {
@@ -271,7 +279,6 @@ namespace core {
                             found = true;
                             break;
                         }
-                        // ИСПРАВЛЕНО: Безопасный вызов на любой платформе (x86/x64/ARM/Linux/Windows)
                         core::cpu_pause();
                     }
 
@@ -287,3 +294,7 @@ namespace core {
     };
 
 } // namespace core
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif

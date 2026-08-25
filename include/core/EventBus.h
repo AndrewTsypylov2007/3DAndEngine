@@ -1,165 +1,120 @@
 #pragma once
 
-#include "Types.h"
 #include <vector>
-#include <atomic>
+#include <unordered_map>
 #include <functional>
 #include <shared_mutex>
 #include <mutex>
 #include <cstdint>
-#include <algorithm>
+#include <atomic>
+#include "Types.h"
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // Подавление информационного варнинга о padding для alignas(64)
+#endif
 
 namespace core {
 
-    // DOD-пакет события кадра (C-ABI совместимый, 16 байт POD)
-    struct EventPacket {
-        EventId  id = 0;
-        uint64_t payload = 0;
-    };
-
-    // Сигнатура обработчиков событий
-    using EventCallback = std::function<void(uint64_t)>;
-    using SubscriptionId = uint64_t;
-
     class EventBus {
     public:
-        static constexpr size_t MAX_EVENTS = 8192;
+        using EventCallback = std::function<void(uint64_t)>;
 
     private:
-        // Пакетный буфер кадра
-        std::vector<EventPacket> buffer_;
-
-        // Атомарные счетчики кольцевого буфера кадра (разнесены по 64-байтовым кэш-линиям)
-        alignas(64) std::atomic<size_t> write_index_{ 0 };
-        alignas(64) std::atomic<size_t> ready_count_{ 0 };
-
-        // Реестр синхронных слушателей
-        struct Listener {
-            SubscriptionId id_token;
-            EventId        event_id;
-            EventCallback  callback;
+        struct BufferedEvent {
+            EventId  id{ 0 };
+            uint64_t payload{ 0 };
         };
 
-        std::vector<Listener>     listeners_;
-        std::atomic<SubscriptionId> next_token_{ 1 };
-        mutable std::shared_mutex listeners_mutex_;
+        // Потокобезопасная таблица подписчиков
+        std::unordered_map<EventId, std::vector<EventCallback>> subscribers_;
+        mutable std::shared_mutex                               subscribers_mutex_;
+
+        // Двойная буферизация для событий кадра (Double-Buffered Event Queue)
+        std::vector<BufferedEvent> buffer_a_;
+        std::vector<BufferedEvent> buffer_b_;
+        std::vector<BufferedEvent>* active_write_buffer_{ &buffer_a_ };
+        std::vector<BufferedEvent>* active_read_buffer_{ &buffer_b_ };
+        std::mutex                  buffer_mutex_;
+
+        std::atomic<size_t> event_count_{ 0 };
 
     public:
         EventBus() {
-            buffer_.resize(MAX_EVENTS);
+            buffer_a_.reserve(256);
+            buffer_b_.reserve(256);
         }
 
-        ~EventBus() {
-            unsubscribeAll();
-        }
-
+        ~EventBus() = default;
         EventBus(const EventBus&) = delete;
         EventBus& operator=(const EventBus&) = delete;
 
-        /**
-         * @brief Потокобезопасная отправка события (Мгновенное прерывание + Запись в буфер кадра)
-         */
-        void broadcast(EventId id, uint64_t payload = 0) {
-            // -------------------------------------------------------------
-            // 1. МГНОВЕННАЯ СИНХРОННАЯ РЕАКЦИЯ (С защитой от Reentrancy Deadlock)
-            // -------------------------------------------------------------
-            // Быстро копируем подходящие коллбэки под shared_lock в локальный буфер,
-            // чтобы освободить мьютекс ДО фактического вызова функции пользователя.
-            std::vector<EventCallback> targets;
+        // Немедленная рассылка (Immediate Dispatch)
+        void dispatchImmediate(EventId id, uint64_t payload = 0) {
+            event_count_.fetch_add(1, std::memory_order_relaxed);
+            std::shared_lock lock(subscribers_mutex_);
+            auto it = subscribers_.find(id);
+            if (it != subscribers_.end()) {
+                for (const auto& cb : it->second) {
+                    if (cb) cb(payload);
+                }
+            }
+        }
+
+        // Буферизованная публикация события кадра (Thread-safe Frame Publish)
+        void publish(EventId id, uint64_t payload = 0) {
+            event_count_.fetch_add(1, std::memory_order_relaxed);
+            std::lock_guard lock(buffer_mutex_);
+            active_write_buffer_->push_back({ id, payload });
+        }
+
+        // Подписка на событие
+        void subscribe(EventId id, EventCallback callback) {
+            std::unique_lock lock(subscribers_mutex_);
+            subscribers_[id].push_back(std::move(callback));
+        }
+
+        // Обработка всех накопленных за кадр событий
+        void processEvents() {
+            std::vector<BufferedEvent>* read_buf = nullptr;
+
             {
-                std::shared_lock lock(listeners_mutex_);
-                for (const auto& listener : listeners_) {
-                    if (listener.event_id == id) {
-                        targets.push_back(listener.callback);
+                std::lock_guard lock(buffer_mutex_);
+                read_buf = active_write_buffer_;
+                active_write_buffer_ = active_read_buffer_;
+                active_read_buffer_ = read_buf;
+                active_write_buffer_->clear();
+            }
+
+            if (read_buf && !read_buf->empty()) {
+                std::shared_lock lock(subscribers_mutex_);
+                for (const auto& evt : *read_buf) {
+                    auto it = subscribers_.find(evt.id);
+                    if (it != subscribers_.end()) {
+                        for (const auto& cb : it->second) {
+                            if (cb) cb(evt.payload);
+                        }
                     }
                 }
             }
-
-            // Вызываем обработчики вне зоны действия lock — теперь слушатель 
-            // может безопасно вызывать subscribe/unsubscribe/broadcast без дедлока!
-            for (auto& cb : targets) {
-                if (cb) {
-                    cb(payload);
-                }
-            }
-
-            // -------------------------------------------------------------
-            // 2. ОТЛОЖЕННАЯ ЗАПИСЬ В БУФЕР КАДРА
-            // -------------------------------------------------------------
-            size_t index = write_index_.fetch_add(1, std::memory_order_relaxed);
-            if (index < MAX_EVENTS) {
-                buffer_[index] = { id, payload };
-                // release барьер: гарантирует видимость данных пакета до инкремента ready_count_
-                ready_count_.fetch_add(1, std::memory_order_release);
-            }
-            else {
-                write_index_.store(MAX_EVENTS, std::memory_order_relaxed);
-            }
         }
 
-        /**
-         * @brief Подписка на мгновенные события. Возвращает токен для отписки.
-         */
-        SubscriptionId subscribe(EventId id, EventCallback callback) {
-            SubscriptionId token = next_token_.fetch_add(1, std::memory_order_relaxed);
-            std::unique_lock lock(listeners_mutex_);
-            listeners_.push_back({ token, id, std::move(callback) });
-            return token;
-        }
-
-        /**
-         * @brief Точечная отписка по токену подписки
-         */
-        void unsubscribe(SubscriptionId token) {
-            std::unique_lock lock(listeners_mutex_);
-            auto it = std::remove_if(listeners_.begin(), listeners_.end(),
-                [token](const Listener& l) { return l.id_token == token; });
-            listeners_.erase(it, listeners_.end());
-        }
-
-        /**
-         * @brief Сброс буфера кадра (вызывается в конце игрового цикла кадра)
-         */
         void clear() {
-            write_index_.store(0, std::memory_order_relaxed);
-            ready_count_.store(0, std::memory_order_release);
+            processEvents();
         }
 
-        /**
-         * @brief Количество событий в буфере текущего кадра
-         */
-        size_t getEventsCount() const {
-            size_t count = ready_count_.load(std::memory_order_acquire);
-            return (count > MAX_EVENTS) ? MAX_EVENTS : count;
-        }
-
-        /**
-         * @brief Прямой доступ к сырому массиву пакетов кадра (DOD)
-         */
-        const EventPacket* getEventsData() const {
-            return buffer_.data();
-        }
-
-        /**
-         * @brief Итерация по всем событиям заданного типа за текущий кадр
-         */
-        template<typename Func>
-        void consumeEvents(EventId target_id, Func&& func) const {
-            size_t count = getEventsCount();
-            for (size_t i = 0; i < count; ++i) {
-                if (buffer_[i].id == target_id) {
-                    func(buffer_[i].payload);
-                }
-            }
-        }
-
-        /**
-         * @brief Принудительное удаление всех слушателей (при остановке ядра)
-         */
         void unsubscribeAll() {
-            std::unique_lock lock(listeners_mutex_);
-            listeners_.clear();
+            std::unique_lock lock(subscribers_mutex_);
+            subscribers_.clear();
+        }
+
+        size_t eventCount() const {
+            return event_count_.load(std::memory_order_relaxed);
         }
     };
 
 } // namespace core
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
