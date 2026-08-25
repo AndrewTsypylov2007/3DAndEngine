@@ -75,7 +75,6 @@ jobs:
             done
             
             if [ -z "$EXE_PATH" ]; then
-              # Запасной глубокий поиск, если путь нестандартный
               EXE_PATH=$(find . -type f -name "3DAndEngine" -not -path "*/.*" | head -n 1)
             fi
             
@@ -124,7 +123,7 @@ jobs:
         run: |
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           
-          # Создаем чистое дерево каталогов дистрибутива SDK v0.4.0
+          # Создаем структуру каталогов для SDK v0.4.0
           New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
           New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
           New-Item -ItemType Directory -Force -Path "dist/bin/assets"
@@ -147,39 +146,28 @@ jobs:
               }
           }
           
-          # Глубокий поиск бинарников, если они в нестандартной папке
+          # Глубокий поиск бинарников при необходимости
           if ((Get-ChildItem -Path "dist/bin" -File).Count -eq 0) {
               Write-Warning "[CI] Running deep scan for engine binaries..."
               Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          # 2. Копирование всех заголовочных файлов SDK v0.4.0
-          $Headers = @(
-            "Types.h", 
-            "EcsRegistry.h", 
-            "EventBus.h", 
-            "JobSystem.h", 
-            "PluginContract.h", 
-            "Application.h", 
-            "PluginLoader.h",
-            "Platform.h"
-          )
-          
-          foreach ($H in $Headers) {
-              $Src = "include/core/$H"
-              if (Test-Path $Src) { 
-                  Copy-Item $Src -Destination "dist/include/core/" -Force 
-              } elseif (Test-Path "include/$H") {
-                  Copy-Item "include/$H" -Destination "dist/include/core/" -Force
-              }
+          # 2. Копирование всех заголовочных файлов из include/core/
+          if (Test-Path "include/core") {
+              Get-ChildItem -Path "include/core/*" -Include "*.h", "*.hpp" | Copy-Item -Destination "dist/include/core/" -Force
           }
           
-          # Копируем тестовый файл для разработчиков SDK
+          # 3. Копирование тестов и документации SDK
+          $DocFiles = @("README*", "LICENSE*", "PLUGIN_GUIDE*", "RELEASE_NOTES*")
+          foreach ($Doc in $DocFiles) {
+              Get-ChildItem -Path $Doc | Copy-Item -Destination "dist/" -Force
+          }
+
           if (Test-Path "src/UnitTestsMain.cpp") {
               Copy-Item "src/UnitTestsMain.cpp" -Destination "dist/" -Force
           }
 
-          # 3. Архивирование в zip
+          # 4. Архивирование в zip
           Set-Location dist
           $OsName = "${{ matrix.os }}".Replace("-latest", "")
           $ZipName = "../3DAndEngine-SDK-v0.4.0-$OsName.zip"
