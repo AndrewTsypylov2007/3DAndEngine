@@ -1,29 +1,39 @@
 #pragma once
 
+// ==============================================================================
+// 1. ПЛАТФОРМЕННЫЕ ЗАГОЛОВОЧНЫЕ ФАЙЛЫ
+// ==============================================================================
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#include <unistd.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #endif
 
 #include <string>
 #include <stdexcept>
 #include <iostream>
 #include <filesystem>
+#include <system_error>
 
 namespace core::platform {
 
     using LibHandle = void*;
 
     /**
-     * @brief Автоматическая коррекция путей под платформу (v0.3.0)
-     * Добавляет .dll, .so или .dylib если они отсутствуют.
+     * @brief Автоматическая коррекция расширений и нормализация путей под текущую ОС
      */
-    inline std::string fix_lib_path(const std::string& path) {
-        std::filesystem::path p(path);
+    inline std::filesystem::path fix_lib_path(const std::filesystem::path& raw_path) {
+        std::filesystem::path p = raw_path;
 #if defined(_WIN32)
         if (p.extension() != ".dll") p.replace_extension(".dll");
 #elif defined(__APPLE__)
@@ -31,52 +41,86 @@ namespace core::platform {
 #else
         if (p.extension() != ".so") p.replace_extension(".so");
 #endif
-        return p.string();
+        return p;
     }
 
     /**
-     * @brief RAII Обертка над динамической библиотекой.
-     * Гарантирует выгрузку модуля при выходе объекта из области видимости.
+     * @brief Получение директории исполняемого файла ядра (полезно для папки plugins/)
+     */
+    inline std::filesystem::path get_executable_dir() {
+#if defined(_WIN32)
+        wchar_t path[MAX_PATH];
+        DWORD length = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+        if (length > 0) {
+            return std::filesystem::path(path).parent_path();
+        }
+#elif defined(__APPLE__)
+        char path[1024];
+        uint32_t size = sizeof(path);
+        if (_NSGetExecutablePath(path, &size) == 0) {
+            return std::filesystem::canonical(path).parent_path();
+        }
+#else
+        char path[1024];
+        ssize_t count = readlink("/proc/self/exe", path, sizeof(path) - 1);
+        if (count != -1) {
+            path[count] = '\0';
+            return std::filesystem::path(path).parent_path();
+        }
+#endif
+        return std::filesystem::current_path();
+    }
+
+    /**
+     * @brief SharedLibrary (v0.3.5 AAA Commercial)
+     * RAII-обертка для безопасной загрузки/выгрузки DLL/SO с поддержкой Unicode.
      */
     class SharedLibrary {
     private:
-        LibHandle handle_ = nullptr;
-        std::string path_;
+        LibHandle             handle_ = nullptr;
+        std::filesystem::path path_;
 
     public:
-        explicit SharedLibrary(const std::string& path) : path_(fix_lib_path(path)) {
+        explicit SharedLibrary(const std::filesystem::path& filepath)
+            : path_(fix_lib_path(filepath)) {
+
 #if defined(_WIN32)
-            handle_ = ::LoadLibraryA(path_.c_str());
+            // Поддержка Unicode путей (LoadLibraryW)
+            handle_ = static_cast<LibHandle>(::LoadLibraryW(path_.wstring().c_str()));
             if (!handle_) {
-                DWORD error = ::GetLastError();
-                throw std::runtime_error("[Platform] Failed to load DLL: " + path_ +
-                    " (WinError: " + std::to_string(error) + ")");
+                DWORD err_code = ::GetLastError();
+                std::string err_msg = std::system_category().message(err_code);
+                throw std::runtime_error("[Platform::SharedLibrary] Ошибка загрузки DLL: " +
+                    path_.string() + " (WinError " + std::to_string(err_code) + ": " + err_msg + ")");
             }
 #else
-            handle_ = ::dlopen(path_.c_str(), RTLD_NOW | RTLD_LOCAL);
+            // RTLD_DEEPBIND изолирует зависимости плагинов от конфликтов символов в Linux
+#if defined(__linux__) && defined(RTLD_DEEPBIND)
+            int flags = RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND;
+#else
+            int flags = RTLD_NOW | RTLD_LOCAL;
+#endif
+
+            ::dlerror(); // Сброс буфера ошибок
+            handle_ = ::dlopen(path_.c_str(), flags);
             if (!handle_) {
-                throw std::runtime_error("[Platform] Failed to load Shared Lib: " + path_ +
-                    " (Error: " + ::dlerror() + ")");
+                const char* error_str = ::dlerror();
+                throw std::runtime_error("[Platform::SharedLibrary] Ошибка загрузки библиотеки: " +
+                    path_.string() + " (" + (error_str ? error_str : "Unknown dlopen error") + ")");
             }
 #endif
-            std::cout << "[Platform] Module loaded successfully: " << path_ << std::endl;
+            std::cout << "[Platform::SharedLibrary] Модуль успешно загружен: " << path_.string() << std::endl;
         }
 
         ~SharedLibrary() {
-            if (handle_) {
-#if defined(_WIN32)
-                ::FreeLibrary(static_cast<HMODULE>(handle_));
-#else
-                ::dlclose(handle_);
-#endif
-            }
+            unload();
         }
 
-        // Удаляем копирование, чтобы избежать двойного освобождения хэндла
+        // Запрет копирования во избежание двойного освобождения хэндла
         SharedLibrary(const SharedLibrary&) = delete;
         SharedLibrary& operator=(const SharedLibrary&) = delete;
 
-        // Разрешаем перемещение для хранения в std::vector внутри Application
+        // Перемещение владения ресурсом
         SharedLibrary(SharedLibrary&& other) noexcept
             : handle_(other.handle_), path_(std::move(other.path_)) {
             other.handle_ = nullptr;
@@ -84,13 +128,7 @@ namespace core::platform {
 
         SharedLibrary& operator=(SharedLibrary&& other) noexcept {
             if (this != &other) {
-                if (handle_) {
-#if defined(_WIN32)
-                    ::FreeLibrary(static_cast<HMODULE>(handle_));
-#else
-                    ::dlclose(handle_);
-#endif
-                }
+                unload();
                 handle_ = other.handle_;
                 path_ = std::move(other.path_);
                 other.handle_ = nullptr;
@@ -99,33 +137,61 @@ namespace core::platform {
         }
 
         /**
-         * @brief Типобезопасное получение функции из библиотеки.
-         * Пример: auto func = lib.get_function<void(*)(int)>("my_func");
+         * @brief Безопасный поиск функции без броска исключений (No-Throw)
+         * Возвращает nullptr, если функция отсутствует (удобно для опциональных хуков).
          */
         template<typename T>
-        T get_function(const std::string& name) const {
+        T try_get_function(const std::string& name) const noexcept {
+            if (!handle_) return nullptr;
+
             void* sym = nullptr;
 #if defined(_WIN32)
             sym = reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle_), name.c_str()));
 #else
             sym = ::dlsym(handle_, name.c_str());
 #endif
-            if (!sym) {
-                throw std::runtime_error("[Platform] Symbol not found: " + name + " in " + path_);
-            }
             return reinterpret_cast<T>(sym);
         }
 
-        LibHandle raw_handle() const { return handle_; }
-        const std::string& path() const { return path_; }
+        /**
+         * @brief Строгий поиск обязательного символа (бросает исключение при отсутствии)
+         */
+        template<typename T>
+        T get_function(const std::string& name) const {
+            T func = try_get_function<T>(name);
+            if (!func) {
+                throw std::runtime_error("[Platform::SharedLibrary] Символ '" + name +
+                    "' не найден в модуле " + path_.string());
+            }
+            return func;
+        }
+
+        bool is_loaded() const noexcept { return handle_ != nullptr; }
+        LibHandle raw_handle() const noexcept { return handle_; }
+        const std::filesystem::path& path() const noexcept { return path_; }
+        std::string path_string() const { return path_.string(); }
+
+    private:
+        void unload() noexcept {
+            if (handle_) {
+#if defined(_WIN32)
+                ::FreeLibrary(static_cast<HMODULE>(handle_));
+#else
+                ::dlclose(handle_);
+#endif
+                handle_ = nullptr;
+            }
+        }
     };
 
-    // --- Legacy API (Оставлено для совместимости со старым кодом ядра) ---
+    // ==========================================================================
+    // LEGACY C-API (Полная обратная совместимость со старыми вызовами ядра)
+    // ==========================================================================
 
     inline LibHandle load_library(const std::string& path) {
-        std::string fixed = fix_lib_path(path);
+        std::filesystem::path fixed = fix_lib_path(path);
 #if defined(_WIN32)
-        return static_cast<LibHandle>(::LoadLibraryA(fixed.c_str()));
+        return static_cast<LibHandle>(::LoadLibraryW(fixed.wstring().c_str()));
 #else
         return ::dlopen(fixed.c_str(), RTLD_NOW | RTLD_GLOBAL);
 #endif

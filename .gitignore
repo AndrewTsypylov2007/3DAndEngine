@@ -1,22 +1,119 @@
-# Скомпилированные бинарники и библиотеки
+# ==============================================================================
+# 1. СКОМПИЛИРОВАННЫЕ БИНАРНИКИ, ДИРЕКТОРИИ СБОРКИ И АРТЕФАКТЫ (C++ / CMake)
+# ==============================================================================
 build/
+build-*/
+cmake-build-*/
 bin/
 lib/
+dist/
 out/
 x64/
+x86/
+ARM/
+ARM64/
 Debug/
 Release/
+RelWithDebInfo/
+MinSizeRel/
+Testing/
+compile_commands.json
 
-# Временные файлы Visual Studio
+# Бинарные исполняемые файлы, динамические и статические библиотеки
+*.exe
+*.out
+*.app
+*.dll
+*.so
+*.dylib
+*.lib
+*.a
+*.pyd
+
+# Промежуточные объектные файлы и дампы компиляторов
+*.obj
+*.o
+*.pch
+*.ipch
+*.ilk
+*.pdb
+*.idb
+*.exp
+*.dSYM/
+*.res
+*.tlog
+
+# ==============================================================================
+# 2. СРЕДЫ РАЗРАБОТКИ (Visual Studio, MSVC, CLion, VS Code, Xcode)
+# ==============================================================================
+# Visual Studio
 .vs/
 *.user
 *.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# Внимание: если вы генерируете .sln/.vcxproj через CMake, они не нужны в Git:
 *.sln
 *.vcxproj
-*.filters
+*.vcxproj.filters
+*.vcxproj.user
 
-# Зависимости vcpkg
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# CLion / JetBrains IDEs
+.idea/
+cmake-build-debug/
+cmake-build-release/
+
+# Xcode & macOS метаданные
+.DS_Store
+*.xcodeproj/
+*.xcworkspace/
+
+# ==============================================================================
+# 3. МЕНЕДЖЕРЫ ПАКЕТОВ И ДЕПЕНДЕНСИ (vcpkg / Conan / CPM)
+# ==============================================================================
 vcpkg_installed/
+vcpkg/
+.vcpkg/
+conan/
+conan.lock
 
-# Локальные файлы конфигурации рантайма
+# ==============================================================================
+# 4. ЛОКАЛЬНЫЕ КОНФИГУРАЦИИ, СЕЙВЫ И ЛОГИ РАНТАЙМА
+# ==============================================================================
+# Локальные конфиги, создаваемые движком в рантайме
 config.json
+*.log
+*.tmp
+*.bak
+crashdump*.dmp
+*.core
+
+# Директории рантайма (если они создаются локально)
+bin/plugins/*
+!bin/plugins/.gitkeep
+bin/shaders/*
+!bin/shaders/.gitkeep
+bin/assets/*
+!bin/assets/.gitkeep
+bin/configs/*
+!bin/configs/.gitkeep
+
+# ==============================================================================
+# 5. РЕЛИЗНЫЕ АРХИВЫ И ДИСТРИБУТИВЫ SDK
+# ==============================================================================
+*.zip
+*.tar.gz
+*.7z
+*.rar
+3DAndEngine-SDK-*.zip

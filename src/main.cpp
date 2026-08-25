@@ -3,61 +3,81 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <filesystem>
 
-// Тесты ядра (Unit Tests)
+// Тесты ядра (Unit Tests v0.4.0)
 void run_all_core_tests();
 
-int main() {
-    std::cout << "=== 3DAndEngine Runtime v0.3.0 (Commercial AAA Architecture) ===\n";
+int main(int argc, char* argv[]) {
+    std::cout << "=================================================================\n";
+    std::cout << "  3DAndEngine Runtime v0.4.0 (Pure Blind AAA Architecture)\n";
+    std::cout << "  Engine ABI Version: 0x" << std::hex << core::ENGINE_ABI_VERSION << std::dec << "\n";
+    std::cout << "=================================================================\n\n";
 
-    // 1. АВТОМАТИЧЕСКИЙ ПРОГОН ТЕСТОВ (Failsafe)
+    // 1. АВТОМАТИЧЕСКИЙ ПРОГОН ТЕСТОВ (Failsafe Self-Test)
     try {
         run_all_core_tests();
     }
     catch (const std::exception& e) {
-        std::cerr << "[Fatal Error] Unit tests failed! Engine startup aborted. Reason: " << e.what() << "\n";
+        std::cerr << "[Fatal Error] Core self-tests failed! Startup aborted. Reason: " << e.what() << "\n";
         return 1;
     }
 
-    // 2. ИНИЦИАЛИЗАЦИЯ ИНФРАСТРУКТУРЫ
+    // 2. ИНИЦИАЛИЗАЦИЯ ИНФРАСТРУКТУРЫ И СЛЕПОЙ ПОИСК ПЛАГИНОВ
     try {
-        // Создаем экземпляр приложения (Материнская плата)
-        core::Application app;
+        // Конфигурация ядра по умолчанию (60 FPS Fixed Physics, Multi-thread Workers)
+        core::EngineConfig config;
+        config.fixed_timestep = 1.0 / 60.0;
+        config.max_delta_time = 0.1f;
 
-        // ПУТЬ К ПЛАГИНАМ: Теперь это единственное, что знает ядро о файлах
-        const std::string plugin_path = "plugins";
+        core::Application app(config);
 
-        // ДИНАМИЧЕСКИЙ ПОИСК И ЗАГРУЗКА (Discovery)
-        // PluginManager::discover теперь сам:
-        // - Рекурсивно находит файлы
-        // - Определяет расширения (.dll / .so)
-        // - Сортирует их по Priority (Window(0) -> Renderer(10) -> Game(100))
-        auto runtime_modules = core::PluginManager::discover(plugin_path);
+        // ОПРЕДЕЛЕНИЕ ДИРЕКТОРИЙ ПОИСКА (рядом с exe и в рабочей папке)
+        std::filesystem::path exe_dir = core::platform::get_executable_dir();
+        std::filesystem::path primary_plugins_path = exe_dir / "plugins";
+        std::filesystem::path fallback_plugins_path = "plugins";
 
-        if (runtime_modules.empty()) {
-            std::cout << "[Core WARNING] Zero payload modules active. Engine running in headless/idle mode.\n";
+        std::cout << "[Core v0.4.0] Запуск слепого рекурсивного обнаружения модулей...\n";
+
+        // СЛЕПОЙ РЕКУРСИВНЫЙ ПОИСК (Рекурсивно сканирует plugins/, plugins/renderers/, plugins/gameplay/ и т.д.)
+        std::vector<std::unique_ptr<core::LoadedPlugin>> runtime_modules;
+
+        if (std::filesystem::exists(primary_plugins_path)) {
+            runtime_modules = core::PluginManager::discover_recursive(primary_plugins_path);
+        }
+        else if (std::filesystem::exists(fallback_plugins_path)) {
+            runtime_modules = core::PluginManager::discover_recursive(fallback_plugins_path);
+        }
+        else {
+            // Если папки нет — создаем и пробуем плоский поиск в текущей папке
+            std::filesystem::create_directories(fallback_plugins_path);
+            runtime_modules = core::PluginManager::discover_flat(fallback_plugins_path);
         }
 
-        // РЕГИСТРАЦИЯ ПЛАГИНОВ В ЯДРЕ
+        if (runtime_modules.empty()) {
+            std::cout << "[Core WARNING] Активных полезных модулей не обнаружено. Движок запущен в Headless/Idle режиме.\n";
+        }
+        else {
+            std::cout << "[Core] Обнаружено и верифицировано модулей: " << runtime_modules.size() << "\n";
+        }
+
+        // РЕГИСТРАЦИЯ И ЗАГРУЗКА ПЛАГИНОВ (Вызывается on_load в порядке priority)
         for (auto& module : runtime_modules) {
-            // При регистрации вызывается on_load, где плагин может:
-            // - Получить доступ к ECS/EventBus
-            // - Зарегистрировать свои API в Service Locator (RegisterSystem)
+            std::cout << "  -> Подключение плагина: [" << module->name()
+                << "] (Приоритет: " << module->priority() << ")\n";
             app.registerPlugin(module->get());
         }
 
-        std::cout << "[Core] Infrastructure v0.3.0 initialized. Active modules: "
-            << runtime_modules.size() << "\n";
+        std::cout << "\n[Core] Инициализация завершена. Переход в высокоскоростной кадровый конвейер...\n\n";
 
         // 3. ЗАПУСК ИГРОВОГО ЦИКЛА (Frame Loop)
-        // Теперь если загружен плагин "UniversalWindow", цикл начнется.
-        // Если окно закроется, оно отправит "engine/exit", и app.run() завершится.
         app.run();
 
-        std::cout << "[Core] Engine runtime executed shutdown successfully.\n";
+        std::cout << "\n[Core] Движок v0.4.0 завершил работу в штатном режиме. Все ресурсы освобождены.\n";
     }
     catch (const std::exception& e) {
-        std::cerr << "[Fatal Error] Core crashed! Reason: " << e.what() << "\n";
+        std::cerr << "\n!!! [FATAL CORE CRASH] !!!\n";
+        std::cerr << "Reason: " << e.what() << "\n";
         return 1;
     }
 

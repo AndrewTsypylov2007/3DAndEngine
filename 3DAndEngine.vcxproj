@@ -145,6 +145,7 @@
     <Text Include="CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="include\core\EngineContext.h" />
     <ClInclude Include="include\core\Application.h" />
     <ClInclude Include="include\core\EventBus.h" />
     <ClInclude Include="include\core\EcsRegistry.h" />
@@ -153,7 +154,6 @@
     <ClInclude Include="include\core\JobSystem.h" />
     <ClInclude Include="include\core\PluginContract.h" />
     <ClInclude Include="include\core\Types.h" />
-    <ClInclude Include="include\core\RenderCommand.h" />
     <ClInclude Include="include\core\LibraryLoader.h" />
   </ItemGroup>
   <ItemGroup>

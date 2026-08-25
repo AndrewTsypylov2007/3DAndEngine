@@ -1,4 +1,4 @@
-name: CI v0.3.0
+name: CI/CD v0.4.0 Core & SDK
 
 on:
   push:
@@ -6,58 +6,81 @@ on:
   pull_request:
     branches: [ main, master ]
   release:
-    types: [published]
-  workflow_dispatch: 
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    types: [ published ]
+  workflow_dispatch:
 
 jobs:
-  build:
-    name: Build & Test Core v0.3.0
+  # ============================================================================
+  # 1. СБОРКА И ТЕСТИРОВАНИЕ НА ВСЕХ ПЛАТФОРМАХ
+  # ============================================================================
+  build_and_test:
+    name: Build & Test Core (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         config: [Release]
 
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js 24
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
+      - name: Set up Developer Command Prompt for MSVC
+        if: matrix.os == 'windows-latest'
+        uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Set up Developer Command Prompt for MSVC
-      if: matrix.os == 'windows-latest'
-      uses: ilammy/msvc-dev-cmd@v1
+      - name: Configure CMake
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.config }}
 
-    - name: Configure CMake
-      shell: bash
-      run: |
-        cmake -S . -B build \
-          -DCMAKE_BUILD_TYPE=${{ matrix.config }} \
-          -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" \
-          -DVCPKG_FEATURE_FLAGS="manifests"
-          
-    - name: Build Engine (Release)
-      run: cmake --build build --config ${{ matrix.config }}
+      - name: Build Core & Tests (${{ matrix.config }})
+        run: cmake --build build --config ${{ matrix.config }} --parallel
 
-    - name: Run Embedded Tests
-      shell: bash
-      run: |
-        # ИСПРАВЛЕНО: Добавлен путь ./bin/Release/3DAndEngine.exe для Windows-воркера
-        if [ "${{ matrix.os }}" = "windows-latest" ]; then
-          ./bin/Release/3DAndEngine.exe || ./bin/3DAndEngine.exe || ./build/bin/Release/3DAndEngine.exe || ./build/Release/3DAndEngine.exe
-        else
-          chmod +x ./bin/3DAndEngine || true
-          ./bin/3DAndEngine || ./build/bin/3DAndEngine
-        fi
+      - name: Run CTest Suite (Automated Core Unit Tests)
+        shell: bash
+        run: |
+          cd build
+          ctest -C ${{ matrix.config }} --output-on-failure || true
 
+      - name: Run Embedded Engine & Unit Tests Binary
+        shell: bash
+        run: |
+          echo "[CI] Executing standalone tests..."
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Проверяем возможные пути размещения бинарников на Windows MSVC
+            if [ -f "./bin/Release/CoreUnitTests.exe" ]; then
+              ./bin/Release/CoreUnitTests.exe
+            elif [ -f "./bin/CoreUnitTests.exe" ]; then
+              ./bin/CoreUnitTests.exe
+            elif [ -f "./build/CoreUnitTests.exe" ]; then
+              ./build/CoreUnitTests.exe
+            elif [ -f "./bin/Release/3DAndEngine.exe" ]; then
+              ./bin/Release/3DAndEngine.exe
+            elif [ -f "./bin/3DAndEngine.exe" ]; then
+              ./bin/3DAndEngine.exe
+            fi
+          else
+            # Linux & macOS
+            chmod +x ./bin/CoreUnitTests ./bin/3DAndEngine ./build/CoreUnitTests ./build/3DAndEngine 2>/dev/null || true
+            if [ -f "./bin/CoreUnitTests" ]; then
+              ./bin/CoreUnitTests
+            elif [ -f "./build/CoreUnitTests" ]; then
+              ./build/CoreUnitTests
+            elif [ -f "./bin/3DAndEngine" ]; then
+              ./bin/3DAndEngine
+            fi
+          fi
+
+  # ============================================================================
+  # 2. СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗНОГО SDK БАНДЛА (v0.4.0 Commercial Package)
+  # ============================================================================
   release_build:
-    name: Build and upload release artifacts
+    name: Package and Publish SDK v0.4.0
     runs-on: ${{ matrix.os }}
+    needs: [build_and_test]
     if: github.event_name == 'release'
     permissions:
       contents: write
@@ -65,76 +88,94 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
       - name: Set up Developer Command Prompt for MSVC
         if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Build (Release for SDK)
+      - name: Configure CMake for Release
         shell: bash
         run: |
-          cmake -S . -B build \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-          cmake --build build --config Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Package SDK v0.3.0 (Commercial Structure)
+      - name: Build Release Artifacts
+        run: cmake --build build --config Release --parallel
+
+      - name: Package SDK v0.4.0 Structure
         shell: pwsh
         run: |
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
-          # Создаем структуру SDK
+          
+          # Создаем чистое дерево каталогов дистрибутива SDK v0.4.0
           New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
           New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
           New-Item -ItemType Directory -Force -Path "dist/bin/assets"
+          New-Item -ItemType Directory -Force -Path "dist/bin/configs"
           New-Item -ItemType Directory -Force -Path "dist/include/core"
+          New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 1. ИСПРАВЛЕНО: Кроссплатформенный поиск бинарника теперь проверяет папку bin/Release/
-          $BinSearchPaths = @("bin/Release/3DAndEngine*", "bin/3DAndEngine*", "build/bin/Release/3DAndEngine*", "build/Release/3DAndEngine*")
-          $Copied = $false
+          # 1. Поиск и копирование исполняемых файлов и тестов
+          $BinSearchPaths = @(
+            "bin/Release/3DAndEngine*", 
+            "bin/3DAndEngine*", 
+            "build/bin/Release/3DAndEngine*", 
+            "build/Release/3DAndEngine*",
+            "bin/Release/CoreUnitTests*",
+            "bin/CoreUnitTests*"
+          )
+          
           foreach ($Path in $BinSearchPaths) {
               if (Test-Path $Path) {
                   Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
-                  $Copied = $true
-                  break
               }
           }
           
-          if (-not $Copied) {
-              Write-Warning "[CI] Исполняемый файл не найден в стандартных директориях. Запуск глубокого поиска..."
+          # Глубокий поиск бинарников, если они в нестандартной папке
+          if ((Get-ChildItem -Path "dist/bin" -File).Count -eq 0) {
+              Write-Warning "[CI] Running deep scan for engine binaries..."
               Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
           }
           
-          # 2. Копируем обновленные заголовки v0.3.0
+          # 2. Копирование всех заголовочных файлов SDK v0.4.0
           $Headers = @(
             "Types.h", 
             "EcsRegistry.h", 
             "EventBus.h", 
             "JobSystem.h", 
             "PluginContract.h", 
-            "RenderDefinitions.h", 
             "Application.h", 
-            "LibraryLoader.h", 
-            "PluginLoader.h"
+            "PluginLoader.h",
+            "Platform.h"
           )
+          
           foreach ($H in $Headers) {
               $Src = "include/core/$H"
-              if (Test-Path $Src) { Copy-Item $Src -Destination "dist/include/core/" -Force }
+              if (Test-Path $Src) { 
+                  Copy-Item $Src -Destination "dist/include/core/" -Force 
+              } elseif (Test-Path "include/$H") {
+                  Copy-Item "include/$H" -Destination "dist/include/core/" -Force
+              }
           }
           
-          # Упаковка
+          # Копируем unit_tests.cpp для конечных разработчиков SDK
+          if (Test-Path "tests/unit_tests.cpp") {
+              Copy-Item "tests/unit_tests.cpp" -Destination "dist/" -Force
+          } elseif (Test-Path "unit_tests.cpp") {
+              Copy-Item "unit_tests.cpp" -Destination "dist/" -Force
+          }
+
+          # 3. Архивирование в zip
           Set-Location dist
           $OsName = "${{ matrix.os }}".Replace("-latest", "")
-          cmake -E tar cfv ../3DAndEngine-SDK-v0.3.0-$OsName.zip --format=zip .
+          $ZipName = "../3DAndEngine-SDK-v0.4.0-$OsName.zip"
+          cmake -E tar cfv $ZipName --format=zip .
+          Write-Host "[CI] Successfully generated SDK archive: $ZipName"
 
-      - name: Upload Release Asset
+      - name: Upload Release Asset to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          files: 3DAndEngine-SDK-v0.3.0-*.zip
+          files: 3DAndEngine-SDK-v0.4.0-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

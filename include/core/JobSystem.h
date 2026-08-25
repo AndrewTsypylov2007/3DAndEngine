@@ -1,14 +1,20 @@
 #pragma once
+
 #include <atomic>
 #include <thread>
 #include <vector>
 #include <condition_variable>
 #include <mutex>
 #include <functional>
+#include <cstdint>
+#include <cassert>
+#include <chrono>
 
 namespace core {
 
-    // Группа задач для отслеживания завершения (Counter-based synchronization)
+    // ==============================================================================
+    // СЧЕТЧИК СИНХРОНИЗАЦИИ (Counter-based synchronization)
+    // ==============================================================================
     struct JobCounter {
         std::atomic<uint32_t> remaining{ 0 };
     };
@@ -16,55 +22,215 @@ namespace core {
     struct Job {
         void (*function)(void*) = nullptr;
         void* data = nullptr;
-        JobCounter* counter = nullptr; // Опциональный счетчик для синхронизации
+        JobCounter* counter = nullptr;
     };
 
-    class JobSystem {
+    // ==============================================================================
+    // LOCK-FREE BOUNDED MPMC ОЧЕРЕДЬ (Dmitry Vyukov Algorithm)
+    // ==============================================================================
+    template<typename T, size_t Capacity>
+    class MpmcBoundedQueue {
+        static_assert((Capacity >= 2) && ((Capacity& (Capacity - 1)) == 0),
+            "Размер очереди Capacity обязан быть степенью двойки!");
+
     private:
-        std::vector<std::thread> workers_;
-        std::atomic<bool> running_{ false };
+        struct Node {
+            std::atomic<size_t> sequence;
+            T data;
+        };
 
-        // Использование кольцевого буфера с блокировкой на условной переменной 
-        // для предотвращения 100% загрузки CPU в режиме ожидания
-        static constexpr size_t RING_SIZE = 4096;
-        Job queue_[RING_SIZE];
-        std::atomic<size_t> head_{ 0 };
-        std::atomic<size_t> tail_{ 0 };
+        static constexpr size_t BufferMask = Capacity - 1;
+        Node buffer_[Capacity];
 
-        std::mutex mutex_;
-        std::condition_variable cv_;
-        std::atomic<uint32_t> active_jobs_{ 0 };
+        // Разделяем счетчики по разным кэш-линиям (64 байта) для исключения False Sharing
+        alignas(64) std::atomic<size_t> enqueue_pos_{ 0 };
+        alignas(64) std::atomic<size_t> dequeue_pos_{ 0 };
 
     public:
-        void initialize() {
-            if (running_.load()) return;
+        MpmcBoundedQueue() {
+            for (size_t i = 0; i < Capacity; ++i) {
+                buffer_[i].sequence.store(i, std::memory_order_relaxed);
+            }
+        }
+
+        ~MpmcBoundedQueue() = default;
+        MpmcBoundedQueue(const MpmcBoundedQueue&) = delete;
+        MpmcBoundedQueue& operator=(const MpmcBoundedQueue&) = delete;
+
+        bool push(const T& item) {
+            size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
+            for (;;) {
+                Node& node = buffer_[pos & BufferMask];
+                size_t seq = node.sequence.load(std::memory_order_acquire);
+                intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos);
+
+                if (diff == 0) {
+                    if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+                        node.data = item;
+                        // Барьер release гарантирует: данные записаны до обновления sequence
+                        node.sequence.store(pos + 1, std::memory_order_release);
+                        return true;
+                    }
+                }
+                else if (diff < 0) {
+                    // Очередь заполнена
+                    return false;
+                }
+                else {
+                    pos = enqueue_pos_.load(std::memory_order_relaxed);
+                }
+            }
+        }
+
+        bool pop(T& item) {
+            size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
+            for (;;) {
+                Node& node = buffer_[pos & BufferMask];
+                size_t seq = node.sequence.load(std::memory_order_acquire);
+                intptr_t diff = static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1);
+
+                if (diff == 0) {
+                    if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) {
+                        item = node.data;
+                        // Освобождаем ячейку для следующего цикла записи
+                        node.sequence.store(pos + BufferMask + 1, std::memory_order_release);
+                        return true;
+                    }
+                }
+                else if (diff < 0) {
+                    // Очередь пуста
+                    return false;
+                }
+                else {
+                    pos = dequeue_pos_.load(std::memory_order_relaxed);
+                }
+            }
+        }
+    };
+
+    // ==============================================================================
+    // ВЫСОКОПРОИЗВОДИТЕЛЬНАЯ СИСТЕМА ДЖОБОВ (v0.3.5 Commercial Standard)
+    // ==============================================================================
+    class JobSystem {
+    private:
+        static constexpr size_t QUEUE_CAPACITY = 4096;
+        MpmcBoundedQueue<Job, QUEUE_CAPACITY> queue_;
+
+        std::vector<std::thread> workers_;
+        std::atomic<bool>        running_{ false };
+        std::atomic<uint32_t>    active_jobs_{ 0 };
+
+        std::mutex               cv_mutex_;
+        std::condition_variable  cv_;
+
+    public:
+        JobSystem() = default;
+
+        ~JobSystem() {
+            shutdown();
+        }
+
+        JobSystem(const JobSystem&) = delete;
+        JobSystem& operator=(const JobSystem&) = delete;
+
+        void initialize(uint32_t user_thread_count = 0) {
+            if (running_.load(std::memory_order_acquire)) return;
             running_.store(true, std::memory_order_release);
 
-            unsigned int threads_count = std::thread::hardware_concurrency();
-            // Оставляем одно ядро под ОС и одно под главный поток движка
-            if (threads_count > 2) threads_count -= 2;
-            if (threads_count == 0) threads_count = 1;
+            uint32_t threads_count = user_thread_count;
+            if (threads_count == 0) {
+                threads_count = std::thread::hardware_concurrency();
+                // 1 ядро под ОС, 1 ядро под Main Thread движка
+                if (threads_count > 2) threads_count -= 2;
+                if (threads_count == 0) threads_count = 1;
+            }
 
-            for (unsigned int i = 0; i < threads_count; ++i) {
+            workers_.reserve(threads_count);
+            for (uint32_t i = 0; i < threads_count; ++i) {
                 workers_.emplace_back([this]() {
-                    while (running_.load(std::memory_order_acquire)) {
-                        Job job;
-                        if (pop(job)) {
-                            execute(job);
-                        }
-                        else {
-                            // Вместо yield используем ожидание на CV (экономия энергии и ресурсов)
-                            std::unique_lock<std::mutex> lock(mutex_);
-                            cv_.wait_for(lock, std::chrono::milliseconds(1), [this] {
-                                return tail_.load() != head_.load() || !running_.load();
-                                });
-                        }
-                    }
+                    workerLoop();
                     });
             }
         }
 
-        // Выполнение задачи с обработкой счетчика
+        /**
+         * @brief Добавить задачу в систему (Потокобезопасно из любого потока)
+         */
+        bool push(void (*func)(void*), void* data = nullptr, JobCounter* counter = nullptr) {
+            if (!func) return false;
+
+            if (counter) {
+                counter->remaining.fetch_add(1, std::memory_order_relaxed);
+            }
+            active_jobs_.fetch_add(1, std::memory_order_relaxed);
+
+            Job job{ func, data, counter };
+            if (!queue_.push(job)) {
+                // Если очередь переполнена, отменяем инкременты
+                if (counter) {
+                    counter->remaining.fetch_sub(1, std::memory_order_relaxed);
+                }
+                active_jobs_.fetch_sub(1, std::memory_order_relaxed);
+                return false;
+            }
+
+            // Будим одного воркера
+            cv_.notify_one();
+            return true;
+        }
+
+        /**
+         * @brief Ожидание завершения группы задач с помощью текущего потока (Work Assisting)
+         */
+        void wait(const JobCounter* counter) {
+            if (!counter) return;
+
+            while (counter->remaining.load(std::memory_order_acquire) > 0) {
+                Job job;
+                if (queue_.pop(job)) {
+                    execute(job);
+                }
+                else {
+                    // Короткая пауза для снятия нагрузки на шину памяти
+                    std::this_thread::yield();
+                }
+            }
+        }
+
+        /**
+         * @brief Ожидание завершения вообще всех задач в системе
+         */
+        void waitAll() {
+            while (active_jobs_.load(std::memory_order_acquire) > 0) {
+                Job job;
+                if (queue_.pop(job)) {
+                    execute(job);
+                }
+                else {
+                    std::this_thread::yield();
+                }
+            }
+        }
+
+        void shutdown() {
+            if (!running_.load(std::memory_order_acquire)) return;
+
+            running_.store(false, std::memory_order_release);
+            cv_.notify_all(); // Будим всех воркеров для безопасного выхода
+
+            for (auto& worker : workers_) {
+                if (worker.joinable()) {
+                    worker.join();
+                }
+            }
+            workers_.clear();
+        }
+
+        uint32_t getActiveJobsCount() const {
+            return active_jobs_.load(std::memory_order_relaxed);
+        }
+
+    private:
         void execute(const Job& job) {
             if (job.function) {
                 job.function(job.data);
@@ -75,62 +241,35 @@ namespace core {
             active_jobs_.fetch_sub(1, std::memory_order_relaxed);
         }
 
-        // Добавление задачи в очередь
-        bool push(void (*func)(void*), void* data = nullptr, JobCounter* counter = nullptr) {
-            size_t current_tail = tail_.load(std::memory_order_relaxed);
-            size_t next_tail = (current_tail + 1) % RING_SIZE;
-
-            if (next_tail == head_.load(std::memory_order_acquire)) {
-                return false; // Очередь переполнена
-            }
-
-            if (counter) counter->remaining.fetch_add(1, std::memory_order_relaxed);
-            active_jobs_.fetch_add(1, std::memory_order_relaxed);
-
-            queue_[current_tail] = { func, data, counter };
-            tail_.store(next_tail, std::memory_order_release);
-
-            cv_.notify_one(); // Пробуждаем одного свободного воркера
-            return true;
-        }
-
-        // Ожидание завершения конкретной группы задач
-        void wait(const JobCounter* counter) {
-            if (!counter) return;
-            while (counter->remaining.load(std::memory_order_acquire) > 0) {
-                // Пока ждем, текущий поток (Main Thread) тоже помогает выполнять работу
+        void workerLoop() {
+            while (running_.load(std::memory_order_acquire)) {
                 Job job;
-                if (pop(job)) {
+                if (queue_.pop(job)) {
                     execute(job);
                 }
                 else {
-                    std::this_thread::yield();
+                    // Гибридный Spin-Wait перед погружением в сон
+                    bool found = false;
+                    for (int spin = 0; spin < 64; ++spin) {
+                        if (queue_.pop(job)) {
+                            execute(job);
+                            found = true;
+                            break;
+                        }
+#if defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__)
+                        _mm_pause(); // Снижает энергопотребление конвейера CPU
+#endif
+                    }
+
+                    if (found) continue;
+
+                    // Если работы так и не появилось — засыпаем на CV
+                    std::unique_lock<std::mutex> lock(cv_mutex_);
+                    cv_.wait_for(lock, std::chrono::milliseconds(2), [this]() {
+                        return !running_.load(std::memory_order_relaxed) || (active_jobs_.load(std::memory_order_relaxed) > 0);
+                        });
                 }
             }
-        }
-
-        bool pop(Job& job) {
-            size_t current_head = head_.load(std::memory_order_relaxed);
-            if (current_head == tail_.load(std::memory_order_acquire)) {
-                return false;
-            }
-            job = queue_[current_head];
-            head_.store((current_head + 1) % RING_SIZE, std::memory_order_release);
-            return true;
-        }
-
-        void shutdown() {
-            running_.store(false, std::memory_order_release);
-            cv_.notify_all(); // Будим всех для выхода
-
-            for (auto& worker : workers_) {
-                if (worker.joinable()) worker.join();
-            }
-            workers_.clear();
-        }
-
-        uint32_t getActiveJobsCount() const {
-            return active_jobs_.load(std::memory_order_relaxed);
         }
     };
 
