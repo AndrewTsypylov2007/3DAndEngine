@@ -39,43 +39,55 @@ jobs:
       - name: Build Core & Tests (${{ matrix.config }})
         run: cmake --build build --config ${{ matrix.config }} --parallel
 
-      - name: Run CTest Suite (Automated Core Unit Tests)
-        shell: bash
-        run: |
-          cd build
-          ctest -C ${{ matrix.config }} --output-on-failure || true
-
       - name: Run Embedded Engine & Unit Tests Binary
         shell: bash
         env:
           CI: "1"
         run: |
           echo "[CI] Executing standalone tests..."
+          
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Поиск и запуск исполняемых файлов на Windows
-            if [ -f "./bin/Release/CoreUnitTests.exe" ]; then
-              ./bin/Release/CoreUnitTests.exe
-            elif [ -f "./bin/CoreUnitTests.exe" ]; then
-              ./bin/CoreUnitTests.exe
-            elif [ -f "./build/CoreUnitTests.exe" ]; then
-              ./build/CoreUnitTests.exe
-            elif [ -f "./bin/Release/3DAndEngine.exe" ]; then
-              ./bin/Release/3DAndEngine.exe --ci
-            elif [ -f "./bin/3DAndEngine.exe" ]; then
-              ./bin/3DAndEngine.exe --ci
+            # Поиск бинарника 3DAndEngine.exe на Windows
+            EXE_PATH=""
+            for CANDIDATE in "./bin/3DAndEngine.exe" "./bin/Release/3DAndEngine.exe" "./build/bin/3DAndEngine.exe" "./build/bin/Release/3DAndEngine.exe" "./build/Release/3DAndEngine.exe" "./build/3DAndEngine.exe"; do
+              if [ -f "$CANDIDATE" ]; then
+                EXE_PATH="$CANDIDATE"
+                break
+              fi
+            done
+            
+            if [ -z "$EXE_PATH" ]; then
+              echo "[CI ERROR] Binary 3DAndEngine.exe not found! Listing workspace files:"
+              find . -name "*.exe" || true
+              exit 1
             fi
+            
+            echo "[CI] Running Windows binary: $EXE_PATH"
+            "$EXE_PATH" --ci
           else
-            # Linux & macOS
-            chmod +x ./bin/CoreUnitTests ./bin/3DAndEngine ./build/CoreUnitTests ./build/3DAndEngine 2>/dev/null || true
-            if [ -f "./bin/CoreUnitTests" ]; then
-              ./bin/CoreUnitTests
-            elif [ -f "./build/CoreUnitTests" ]; then
-              ./build/CoreUnitTests
-            elif [ -f "./bin/3DAndEngine" ]; then
-              ./bin/3DAndEngine --ci
-            elif [ -f "./build/3DAndEngine" ]; then
-              ./build/3DAndEngine --ci
+            # Поиск бинарника 3DAndEngine на Linux и macOS
+            EXE_PATH=""
+            for CANDIDATE in "./bin/3DAndEngine" "./build/bin/3DAndEngine" "./build/3DAndEngine"; do
+              if [ -f "$CANDIDATE" ]; then
+                EXE_PATH="$CANDIDATE"
+                break
+              fi
+            done
+            
+            if [ -z "$EXE_PATH" ]; then
+              # Запасной глубокий поиск, если путь нестандартный
+              EXE_PATH=$(find . -type f -name "3DAndEngine" -not -path "*/.*" | head -n 1)
             fi
+            
+            if [ -z "$EXE_PATH" ] || [ ! -f "$EXE_PATH" ]; then
+              echo "[CI ERROR] Binary 3DAndEngine not found! Listing files:"
+              find . -type f -perm +111 -o -name "3DAndEngine*" || true
+              exit 1
+            fi
+            
+            echo "[CI] Running POSIX binary: $EXE_PATH"
+            chmod +x "$EXE_PATH"
+            "$EXE_PATH" --ci
           fi
 
   # ============================================================================
@@ -120,15 +132,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/include/core"
           New-Item -ItemType Directory -Force -Path "dist/lib"
           
-          # 1. Поиск и копирование исполняемых файлов и тестов
+          # 1. Поиск и копирование исполняемых файлов
           $BinSearchPaths = @(
             "bin/Release/3DAndEngine*", 
             "bin/3DAndEngine*", 
             "build/bin/Release/3DAndEngine*", 
             "build/Release/3DAndEngine*",
-            "bin/Release/CoreUnitTests*",
-            "bin/CoreUnitTests*",
-            "build/CoreUnitTests*"
+            "build/3DAndEngine*"
           )
           
           foreach ($Path in $BinSearchPaths) {
@@ -164,10 +174,8 @@ jobs:
               }
           }
           
-          # Копируем тесты и документацию для разработчиков SDK
-          if (Test-Path "tests/unit_tests.cpp") {
-              Copy-Item "tests/unit_tests.cpp" -Destination "dist/" -Force
-          } elseif (Test-Path "src/UnitTestsMain.cpp") {
+          # Копируем тестовый файл для разработчиков SDK
+          if (Test-Path "src/UnitTestsMain.cpp") {
               Copy-Item "src/UnitTestsMain.cpp" -Destination "dist/" -Force
           }
 
