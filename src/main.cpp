@@ -1,4 +1,6 @@
+#ifndef _CRT_SECURE_NO_WARNINGS
 #define _CRT_SECURE_NO_WARNINGS
+#endif
 
 #include "../include/core/Application.h"
 #include "../include/core/PluginLoader.h"
@@ -12,7 +14,7 @@
 // Декларация функции тестирования ядра
 void run_all_core_tests();
 
-// Безопасный кроссплатформенный хелпер для чтения переменных окружения
+// Безопасный кроссплатформенный хелпер для проверки переменных окружения
 inline bool has_env_flag(const char* name) {
 #if defined(_MSC_VER)
     char* val = nullptr;
@@ -33,7 +35,7 @@ int main(int argc, char* argv[]) {
     std::cout << "  Engine ABI Version: 0x" << std::hex << core::ENGINE_ABI_VERSION << std::dec << "\n";
     std::cout << "=================================================================\n\n";
 
-    // Определение режима CI или тестов через безопасный хелпер
+    // Автоматическое определение режима CI и автономных тестов
     bool is_ci_mode = has_env_flag("CI") || has_env_flag("GITHUB_ACTIONS");
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -57,7 +59,7 @@ int main(int argc, char* argv[]) {
         config.fixed_timestep = 1.0 / 60.0;
         config.max_delta_time = 0.1f;
 
-        // В CI или при запуске с флагом --test выполняем 30 кадров и выходим
+        // В CI или автономном тесте выполняем 30 кадров и штатно выходим
         if (is_ci_mode) {
             config.max_frames = 30;
             std::cout << "[Core CI] Режим автономного тестирования активен (лимит: 30 кадров).\n";
