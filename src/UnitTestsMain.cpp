@@ -24,7 +24,7 @@ namespace core {
     constexpr uint64_t hash_str(std::string_view str) noexcept {
         uint64_t hash = FNV1A_64_OFFSET_BASIS;
         for (char c : str) {
-            hash ^= static_cast<uint64_t>(c);
+            hash ^= static_cast<uint64_t>(static_cast<unsigned char>(c));
             hash *= FNV1A_64_PRIME;
         }
         return hash;
@@ -57,6 +57,10 @@ namespace core {
             }
             return nullptr;
         }
+
+        static void Clear() {
+            s_services.clear();
+        }
     };
 
     // 3. Реактивный ECS
@@ -70,6 +74,10 @@ namespace core {
         std::vector<EcsListener> listeners_;
         std::unordered_map<Entity, std::unordered_map<ComponentTypeId, void*>> storage_;
     public:
+        ~EcsRegistry() {
+            clear();
+        }
+
         Entity createEntity() {
             return next_entity_++;
         }
@@ -98,6 +106,17 @@ namespace core {
             }
             return nullptr;
         }
+
+        void clear() {
+            for (auto& [ent, comps] : storage_) {
+                for (auto& [cid, ptr] : comps) {
+                    delete static_cast<char*>(ptr);
+                }
+            }
+            storage_.clear();
+            listeners_.clear();
+            next_entity_ = 1;
+        }
     };
 
     // 4. Гибридный EventBus
@@ -115,7 +134,7 @@ namespace core {
             auto it = subscribers_.find(id);
             if (it != subscribers_.end()) {
                 for (auto& cb : it->second) {
-                    cb(payload);
+                    if (cb) cb(payload);
                 }
             }
         }
@@ -143,8 +162,10 @@ struct Velocity {
 // 1. ТЕСТ 64-БИТНОГО ХЕШИРОВАНИЯ
 // ==============================================================================
 void test_commercial_hashing() {
+    using namespace core;
+
     constexpr uint64_t hash1 = core::hash_str("renderer/main_pass");
-    constexpr uint64_t hash2 = core::operator""_id("renderer/main_pass", 18);
+    constexpr uint64_t hash2 = "renderer/main_pass"_id;
 
     assert(hash1 == hash2);
     assert(hash1 > 0xFFFFFFFFull);
@@ -218,6 +239,7 @@ void test_service_locator() {
     assert(retrieved != nullptr);
     assert(static_cast<MockRenderAPI*>(retrieved)->version == 30);
 
+    SystemBridge::Clear();
     std::cout << "[Test Passed] Service Locator Registry works.\n";
 }
 

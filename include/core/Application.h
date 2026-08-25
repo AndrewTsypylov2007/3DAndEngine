@@ -23,7 +23,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // Подавление информационного предупреждения C4324 о padding
+#pragma warning(disable: 4324) // Подавление информационного предупреждения C4324 о padding для alignas(64)
 #endif
 
 namespace core {
@@ -230,10 +230,31 @@ namespace core {
         }
 
         ~Application() {
-            stop();
+            // 1. Немедленно отключаем глобальный указатель моста, предотвращая Use-After-Free
             if (s_active_instance == this) {
                 s_active_instance = nullptr;
             }
+
+            stop();
+            job_system_.shutdown();
+
+            // 2. Безопасная выгрузка плагинов по локальной копии списка
+            auto plugins_to_unload = plugins_;
+            plugins_.clear();
+
+            for (auto it = plugins_to_unload.rbegin(); it != plugins_to_unload.rend(); ++it) {
+                if (*it && (*it)->on_unload) {
+                    try {
+                        (*it)->on_unload();
+                    }
+                    catch (...) {
+                        // Защита от сбоя деструктора плагина
+                    }
+                }
+            }
+
+            event_bus_.unsubscribeAll();
+            services_.clear();
         }
 
         Application(const Application&) = delete;
@@ -269,7 +290,10 @@ namespace core {
                 }
                 catch (const std::exception& e) {
                     std::cerr << "[Core Error] Исключение в on_load плагина '"
-                        << plugin->name << "': " << e.what() << "\n";
+                        << (plugin->name ? plugin->name : "") << "': " << e.what() << "\n";
+                }
+                catch (...) {
+                    std::cerr << "[Core Error] Неизвестное исключение в on_load плагина\n";
                 }
             }
         }
@@ -303,7 +327,9 @@ namespace core {
                 auto physics_start = Clock::now();
                 while (accumulator >= config_.fixed_timestep) {
                     float fixed_dt = static_cast<float>(config_.fixed_timestep);
-                    for (auto* plugin : plugins_) {
+                    size_t p_count = plugins_.size();
+                    for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
+                        auto* plugin = plugins_[i];
                         if (plugin && plugin->on_fixed_update) {
                             try {
                                 plugin->on_fixed_update(fixed_dt);
@@ -311,6 +337,7 @@ namespace core {
                             catch (const std::exception& e) {
                                 std::cerr << "[Core Loop] Ошибка в on_fixed_update: " << e.what() << "\n";
                             }
+                            catch (...) {}
                         }
                     }
                     accumulator -= config_.fixed_timestep;
@@ -318,7 +345,9 @@ namespace core {
                 stats_.physics_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - physics_start).count();
 
                 // --- 2. ГЕЙМПЛЕЙНЫЙ ШАГ КАДРА (Variable Update) ---
-                for (auto* plugin : plugins_) {
+                size_t p_count = plugins_.size();
+                for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
+                    auto* plugin = plugins_[i];
                     if (plugin && plugin->on_update) {
                         try {
                             plugin->on_update(frame_dt);
@@ -326,13 +355,15 @@ namespace core {
                         catch (const std::exception& e) {
                             std::cerr << "[Core Loop] Ошибка в on_update: " << e.what() << "\n";
                         }
+                        catch (...) {}
                     }
                 }
 
                 // --- 3. ФАЗА ОТРИСОВКИ С ИНТЕРПОЛЯЦИЕЙ (Render Step) ---
                 auto render_start = Clock::now();
                 float alpha = static_cast<float>(accumulator / config_.fixed_timestep);
-                for (auto* plugin : plugins_) {
+                for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
+                    auto* plugin = plugins_[i];
                     if (plugin && plugin->on_render) {
                         try {
                             plugin->on_render(alpha);
@@ -340,12 +371,13 @@ namespace core {
                         catch (const std::exception& e) {
                             std::cerr << "[Core Loop] Ошибка в on_render: " << e.what() << "\n";
                         }
+                        catch (...) {}
                     }
                 }
                 stats_.render_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - render_start).count();
 
-                // --- 4. ПОСТ-КАДРОВАЯ ОЧИСТКА И ОБРАБОТКА СОБЫТИЙ ---
-                event_bus_.clear();
+                // --- 4. ПОСТ-КАДРОВАЯ ОБРАБОТКА СОБЫТИЙ И ОЧИСТКА ---
+                event_bus_.processEvents();
                 frame_data_.clear_frame();
 
                 // --- 5. ТЕЛЕМЕТРИЯ ---
@@ -375,9 +407,12 @@ namespace core {
             }
 
             // =====================================================================
-            // БЕЗОПАСНАЯ ВЫГРУЗКА И ДЕИНИЦИАЛИЗАЦИЯ (В обратном порядке)
+            // БЕЗОПАСНАЯ ВЫГРУЗКА И ДЕИНИЦИАЛИЗАЦИЯ
             // =====================================================================
-            for (auto it = plugins_.rbegin(); it != plugins_.rend(); ++it) {
+            auto plugins_to_unload = plugins_;
+            plugins_.clear();
+
+            for (auto it = plugins_to_unload.rbegin(); it != plugins_to_unload.rend(); ++it) {
                 if (*it && (*it)->on_unload) {
                     try {
                         (*it)->on_unload();
@@ -385,13 +420,13 @@ namespace core {
                     catch (const std::exception& e) {
                         std::cerr << "[Core Error] Ошибка при выгрузке плагина: " << e.what() << "\n";
                     }
+                    catch (...) {}
                 }
             }
 
-            plugins_.clear();
+            job_system_.shutdown();
             event_bus_.unsubscribeAll();
             services_.clear();
-            job_system_.shutdown();
         }
 
         void stop() {

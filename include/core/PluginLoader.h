@@ -28,6 +28,7 @@ namespace core {
 
         LoadedPlugin(const LoadedPlugin&) = delete;
         LoadedPlugin& operator=(const LoadedPlugin&) = delete;
+
         LoadedPlugin(LoadedPlugin&&) noexcept = default;
         LoadedPlugin& operator=(LoadedPlugin&&) noexcept = default;
 

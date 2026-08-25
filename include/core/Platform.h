@@ -49,19 +49,19 @@ namespace core::platform {
      */
     inline std::filesystem::path get_executable_dir() {
 #if defined(_WIN32)
-        wchar_t path[MAX_PATH];
+        wchar_t path[MAX_PATH] = { 0 };
         DWORD length = ::GetModuleFileNameW(nullptr, path, MAX_PATH);
         if (length > 0) {
             return std::filesystem::path(path).parent_path();
         }
 #elif defined(__APPLE__)
-        char path[1024];
+        char path[1024] = { 0 };
         uint32_t size = sizeof(path);
         if (_NSGetExecutablePath(path, &size) == 0) {
             return std::filesystem::canonical(path).parent_path();
         }
 #else
-        char path[1024];
+        char path[1024] = { 0 };
         ssize_t count = readlink("/proc/self/exe", path, sizeof(path) - 1);
         if (count != -1) {
             path[count] = '\0';
@@ -72,7 +72,7 @@ namespace core::platform {
     }
 
     /**
-     * @brief SharedLibrary (v0.3.5 AAA Commercial)
+     * @brief SharedLibrary (v0.4.0 AAA Commercial Standard)
      * RAII-обертка для безопасной загрузки/выгрузки DLL/SO с поддержкой Unicode.
      */
     class SharedLibrary {

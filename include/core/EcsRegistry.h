@@ -11,6 +11,12 @@
 #include <unordered_map>
 #include <typeinfo>
 #include <cstring>
+#include <algorithm>
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324)
+#endif
 
 namespace core {
 
@@ -86,6 +92,7 @@ namespace core {
             : dense_data_(std::move(other.dense_data_)),
             dense_entities_(std::move(other.dense_entities_)),
             sparse_pages_(std::move(other.sparse_pages_)) {
+            other.sparse_pages_.clear();
         }
 
         ComponentPool& operator=(ComponentPool&& other) noexcept {
@@ -94,6 +101,7 @@ namespace core {
                 dense_data_ = std::move(other.dense_data_);
                 dense_entities_ = std::move(other.dense_entities_);
                 sparse_pages_ = std::move(other.sparse_pages_);
+                other.sparse_pages_.clear();
             }
             return *this;
         }
@@ -259,7 +267,9 @@ namespace core {
 
     public:
         EcsRegistry() = default;
-        ~EcsRegistry() = default;
+        ~EcsRegistry() {
+            clear();
+        }
 
         EcsRegistry(const EcsRegistry&) = delete;
         EcsRegistry& operator=(const EcsRegistry&) = delete;
@@ -293,13 +303,19 @@ namespace core {
                 ptr = &get_or_create_pool_unlocked<T>()->assign(entity, std::move(component));
             }
 
-            // Потокобезопасное оповещение слушателей
+            // Потокобезопасное оповещение слушателей по локальной копии (защита от дедлока/рекурсии)
+            std::vector<EcsListener> listeners_copy;
             {
                 std::shared_lock l_lock(listener_mutex_);
-                for (const auto& listener : listeners_) {
-                    if (listener.on_component_added) {
+                listeners_copy = listeners_;
+            }
+
+            for (const auto& listener : listeners_copy) {
+                if (listener.on_component_added) {
+                    try {
                         listener.on_component_added(entity, tid);
                     }
+                    catch (...) {}
                 }
             }
             return *ptr;
@@ -339,12 +355,18 @@ namespace core {
                 }
             }
 
+            std::vector<EcsListener> listeners_copy;
             {
                 std::shared_lock l_lock(listener_mutex_);
-                for (const auto& listener : listeners_) {
-                    if (listener.on_component_removed) {
+                listeners_copy = listeners_;
+            }
+
+            for (const auto& listener : listeners_copy) {
+                if (listener.on_component_removed) {
+                    try {
                         listener.on_component_removed(entity, tid);
                     }
+                    catch (...) {}
                 }
             }
         }
@@ -367,9 +389,17 @@ namespace core {
             for (auto& pool : pools_) {
                 if (pool) pool->clear();
             }
+            pools_.clear();
             free_entities_.clear();
             next_entity_ = 1;
+
+            std::unique_lock l_lock(listener_mutex_);
+            listeners_.clear();
         }
     };
 
 } // namespace core
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif

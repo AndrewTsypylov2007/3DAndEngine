@@ -5,13 +5,11 @@
 #include <cstdint>
 
 namespace core {
+
     // Опережающие объявления базовых подсистем
     class EcsRegistry;
     class EventBus;
     class JobSystem;
-}
-
-namespace core {
 
     // Идентификатор слотов данных кадра
     using FrameDataId = uint64_t;

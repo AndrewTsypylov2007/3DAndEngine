@@ -3,7 +3,6 @@
 #include <vector>
 #include <unordered_map>
 #include <functional>
-#include <shared_mutex>
 #include <mutex>
 #include <cstdint>
 #include <atomic>
@@ -11,7 +10,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324)
+#pragma warning(disable: 4324) // Подавление информационного варнинга C4324 о padding для alignas(64)
 #endif
 
 namespace core {
@@ -26,21 +25,19 @@ namespace core {
             uint64_t payload{ 0 };
         };
 
+        // Таблица подписчиков, защищенная рекурсивным мьютексом
         std::unordered_map<EventId, std::vector<EventCallback>> subscribers_;
-        mutable std::shared_mutex                               subscribers_mutex_;
+        mutable std::recursive_mutex                            subscribers_mutex_;
 
-        std::vector<BufferedEvent> buffer_a_;
-        std::vector<BufferedEvent> buffer_b_;
-        std::vector<BufferedEvent>* active_write_buffer_{ &buffer_a_ };
-        std::vector<BufferedEvent>* active_read_buffer_{ &buffer_b_ };
-        std::mutex                  buffer_mutex_;
+        // Буфер отложенных событий текущего кадра
+        std::vector<BufferedEvent>                              write_buffer_;
+        mutable std::recursive_mutex                            buffer_mutex_;
 
-        std::atomic<size_t> event_count_{ 0 };
+        std::atomic<size_t>                                     event_count_{ 0 };
 
     public:
         EventBus() {
-            buffer_a_.reserve(256);
-            buffer_b_.reserve(256);
+            write_buffer_.reserve(256);
         }
 
         ~EventBus() {
@@ -50,51 +47,58 @@ namespace core {
         EventBus(const EventBus&) = delete;
         EventBus& operator=(const EventBus&) = delete;
 
-        // БЕЗОПАСНАЯ НЕМЕДЛЕННАЯ РАССЫЛКА (Копирует список коллбеков для защиты от рекурсивной мутации вектора)
+        // Немедленная рассылка события (Immediate Dispatch с защитой от инвалидации итераторов)
         void dispatchImmediate(EventId id, uint64_t payload = 0) {
             event_count_.fetch_add(1, std::memory_order_relaxed);
 
-            std::vector<EventCallback> callbacks_snapshot;
+            std::vector<EventCallback> callbacks_copy;
             {
-                std::shared_lock lock(subscribers_mutex_);
+                std::lock_guard<std::recursive_mutex> lock(subscribers_mutex_);
                 auto it = subscribers_.find(id);
                 if (it != subscribers_.end()) {
-                    callbacks_snapshot = it->second; // Снимок защищает от повреждения итератора
+                    callbacks_copy = it->second;
                 }
             }
 
-            for (const auto& cb : callbacks_snapshot) {
+            for (const auto& cb : callbacks_copy) {
                 if (cb) {
-                    try { cb(payload); }
-                    catch (...) {}
+                    try {
+                        cb(payload);
+                    }
+                    catch (...) {
+                        // Защита главного потока от исключений внутри пользовательских плагинов
+                    }
                 }
             }
         }
 
+        // Потокобезопасная буферизованная публикация события
         void publish(EventId id, uint64_t payload = 0) {
             event_count_.fetch_add(1, std::memory_order_relaxed);
-            std::lock_guard lock(buffer_mutex_);
-            active_write_buffer_->push_back({ id, payload });
+            std::lock_guard<std::recursive_mutex> lock(buffer_mutex_);
+            write_buffer_.push_back({ id, payload });
         }
 
+        // Подписка на событие
         void subscribe(EventId id, EventCallback callback) {
             if (!callback) return;
-            std::unique_lock lock(subscribers_mutex_);
+            std::lock_guard<std::recursive_mutex> lock(subscribers_mutex_);
             subscribers_[id].push_back(std::move(callback));
         }
 
+        // Обработка всех накопленных событий кадра (Swap Snapshot Pattern)
         void processEvents() {
-            std::vector<BufferedEvent> events_to_process;
+            std::vector<BufferedEvent> events_snapshot;
             {
-                std::lock_guard lock(buffer_mutex_);
-                if (!active_write_buffer_->empty()) {
-                    events_to_process.swap(*active_write_buffer_);
+                std::lock_guard<std::recursive_mutex> lock(buffer_mutex_);
+                if (!write_buffer_.empty()) {
+                    events_snapshot.swap(write_buffer_);
                 }
             }
 
-            if (events_to_process.empty()) return;
+            if (events_snapshot.empty()) return;
 
-            for (const auto& evt : events_to_process) {
+            for (const auto& evt : events_snapshot) {
                 dispatchImmediate(evt.id, evt.payload);
             }
         }
@@ -104,11 +108,10 @@ namespace core {
         }
 
         void unsubscribeAll() {
-            std::unique_lock lock(subscribers_mutex_);
+            std::lock_guard<std::recursive_mutex> lock1(subscribers_mutex_);
             subscribers_.clear();
-            std::lock_guard lock2(buffer_mutex_);
-            buffer_a_.clear();
-            buffer_b_.clear();
+            std::lock_guard<std::recursive_mutex> lock2(buffer_mutex_);
+            write_buffer_.clear();
         }
 
         size_t eventCount() const {

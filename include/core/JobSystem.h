@@ -10,10 +10,11 @@
 #include <cassert>
 #include <chrono>
 #include <memory>
+#include <algorithm>
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // Подавление информационного варнинга о padding для alignas(64)
+#pragma warning(disable: 4324) // Подавление информационного варнинга C4324 о padding для alignas(64)
 #include <intrin.h>
 #elif defined(__i386__) || defined(__x86_64__)
 #include <immintrin.h>
@@ -21,7 +22,7 @@
 
 namespace core {
 
-    // Кроссплатформенная пауза конвейера CPU
+    // Кроссплатформенная микро-пауза конвейера CPU (Hardware Backoff)
     inline void cpu_pause() noexcept {
 #if defined(_MSC_VER) || defined(__i386__) || defined(__x86_64__)
         _mm_pause();
@@ -43,7 +44,7 @@ namespace core {
 
     // =========================================================================
     // LOCK-FREE BOUNDED MPMC QUEUE (Vyukov Algorithm)
-    // Хранилище слотов в динамической памяти (куче)
+    // Динамическое размещение буфера в куче (0 байт расхода стека)
     // =========================================================================
     template<typename T, size_t Capacity = 4096>
     class MpmcBoundedQueue {

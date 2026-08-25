@@ -38,7 +38,20 @@ namespace core::platform {
     }
 
     /**
-     * @brief SharedLibrary (v0.3.5 AAA Commercial Standard)
+     * @brief Получение пути к директории исполняемого файла
+     */
+    inline std::filesystem::path get_executable_dir() {
+#if defined(_WIN32)
+        wchar_t path[MAX_PATH] = { 0 };
+        ::GetModuleFileNameW(nullptr, path, MAX_PATH);
+        return std::filesystem::path(path).parent_path();
+#else
+        return std::filesystem::current_path();
+#endif
+    }
+
+    /**
+     * @brief SharedLibrary (v0.4.0 AAA Commercial Standard)
      * Высоконадежная RAII-обертка для динамической загрузки библиотек с поддержкой Unicode.
      */
     class SharedLibrary {
@@ -67,7 +80,7 @@ namespace core::platform {
             int flags = RTLD_NOW | RTLD_LOCAL;
 #endif
 
-            // Сброс предыдущих ошибок
+            // Сброс предыдущих ошибок dlerror
             ::dlerror();
             handle_ = ::dlopen(path_.c_str(), flags);
             if (!handle_) {
@@ -83,11 +96,11 @@ namespace core::platform {
             unload();
         }
 
-        // Запрет копирования (защита от двойного FreeLibrary)
+        // Запрет копирования (защита от двойного вызова FreeLibrary/dlclose)
         SharedLibrary(const SharedLibrary&) = delete;
         SharedLibrary& operator=(const SharedLibrary&) = delete;
 
-        // Перемещение владения ресурсом
+        // Безопасное перемещение владения ресурсом
         SharedLibrary(SharedLibrary&& other) noexcept
             : handle_(other.handle_), path_(std::move(other.path_)) {
             other.handle_ = nullptr;

@@ -14,6 +14,9 @@ namespace core {
     // Константа бинарного контракта ABI (0x00040000 = v0.4.0)
     constexpr uint32_t ENGINE_ABI_VERSION = 0x00040000;
 
+    // Идентификатор слотов данных кадра
+    using FrameDataId = uint64_t;
+
     enum class LogLevel : uint32_t {
         Trace = 0,
         Info = 1,
@@ -64,23 +67,23 @@ namespace core {
     // ЕДИНЫЙ КОНТЕКСТ ДВИЖКА (EngineContext)
     // =========================================================================
     struct EngineContext {
-        EcsRegistry* ecs;
-        EventBus* event_bus;
-        JobSystem* job_system;
+        EcsRegistry* ecs = nullptr;
+        EventBus* event_bus = nullptr;
+        JobSystem* job_system = nullptr;
 
-        InputAPI* input;
-        AudioAPI* audio;
-        RenderAPI* renderer;
-        AssetAPI* assets;
-        LogAPI* logger;
+        InputAPI* input = nullptr;
+        AudioAPI* audio = nullptr;
+        RenderAPI* renderer = nullptr;
+        AssetAPI* assets = nullptr;
+        LogAPI* logger = nullptr;
 
         // Сервис-локатор ядра
-        void* (*get_system)(SystemID id);
-        void  (*register_system)(SystemID id, void* system_ptr);
+        void* (*get_system)(SystemID id) = nullptr;
+        void  (*register_system)(SystemID id, void* system_ptr) = nullptr;
 
-        // Обмен покадровыми данными между плагинами
-        void* (*get_frame_data)(FrameDataId id);
-        void  (*set_frame_data)(FrameDataId id, void* data_ptr);
+        // Обмен покадровыми данными между плагинами (Frame Blackboard)
+        void* (*get_frame_data)(FrameDataId id) = nullptr;
+        void  (*set_frame_data)(FrameDataId id, void* data_ptr) = nullptr;
 
         template<typename T>
         T* getSystem(SystemID id) const {
@@ -92,6 +95,19 @@ namespace core {
         void registerSystem(SystemID id, T* ptr) const {
             if (register_system) {
                 register_system(id, static_cast<void*>(ptr));
+            }
+        }
+
+        template<typename T>
+        T* getFrameData(FrameDataId id) const {
+            if (!get_frame_data) return nullptr;
+            return static_cast<T*>(get_frame_data(id));
+        }
+
+        template<typename T>
+        void setFrameData(FrameDataId id, T* data_ptr) const {
+            if (set_frame_data) {
+                set_frame_data(id, static_cast<void*>(data_ptr));
             }
         }
     };
@@ -134,5 +150,10 @@ extern "C" {
 }
 #endif
 
-// Экспорт фабрики плагина в одну строку (предотвращает предупреждения GCC/Clang о переносе строк)
-#define DECLARE_ENGINE_PLUGIN(PluginStructInstance) extern "C" { ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { return &PluginStructInstance; } }
+// Экспорт фабрики плагина в одну строку
+#define DECLARE_ENGINE_PLUGIN(PluginStructInstance) \
+    extern "C" { \
+        ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { \
+            return &PluginStructInstance; \
+        } \
+    }
