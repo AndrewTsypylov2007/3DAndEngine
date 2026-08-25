@@ -181,7 +181,6 @@ extern "C" {
 }
 #endif
 
-
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) \
     extern "C" { \
         ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { \
