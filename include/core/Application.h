@@ -1,5 +1,16 @@
 #pragma once
 
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -23,7 +34,7 @@
 
 #if defined(_MSC_VER)
 #pragma warning(push)
-#pragma warning(disable: 4324) // Подавление информационного предупреждения C4324 о padding для alignas(64)
+#pragma warning(disable: 4324) // Подавление C4324 о padding для alignas(64)
 #endif
 
 namespace core {
@@ -384,8 +395,8 @@ namespace core {
                 stats_.total_frames++;
                 frames_in_second++;
                 stats_.frame_time_ms = frame_dt * 1000.0f;
-                stats_.min_frame_time_ms = std::min(stats_.min_frame_time_ms, stats_.frame_time_ms);
-                stats_.max_frame_time_ms = std::max(stats_.max_frame_time_ms, stats_.frame_time_ms);
+                stats_.min_frame_time_ms = (std::min)(stats_.min_frame_time_ms, stats_.frame_time_ms);
+                stats_.max_frame_time_ms = (std::max)(stats_.max_frame_time_ms, stats_.frame_time_ms);
 
                 auto now = Clock::now();
                 if (std::chrono::duration<float>(now - fps_timer).count() >= 1.0f) {

@@ -58,7 +58,12 @@ namespace core::platform {
         char path[1024] = { 0 };
         uint32_t size = sizeof(path);
         if (_NSGetExecutablePath(path, &size) == 0) {
-            return std::filesystem::canonical(path).parent_path();
+            std::error_code ec;
+            auto canonical_path = std::filesystem::weakly_canonical(path, ec);
+            if (!ec) {
+                return canonical_path.parent_path();
+            }
+            return std::filesystem::path(path).parent_path();
         }
 #else
         char path[1024] = { 0 };

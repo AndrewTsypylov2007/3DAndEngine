@@ -2,6 +2,13 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
 #include "../include/core/Application.h"
 #include "../include/core/PluginLoader.h"
 #include <iostream>
@@ -30,6 +37,12 @@ inline bool has_env_flag(const char* name) {
 }
 
 int main(int argc, char* argv[]) {
+#if defined(_WIN32)
+    // Установка кодовой страницы консоли Windows в UTF-8
+    ::SetConsoleOutputCP(CP_UTF8);
+    ::SetConsoleCP(CP_UTF8);
+#endif
+
     std::cout << "=================================================================\n";
     std::cout << "  3DAndEngine Runtime v0.4.0 (Pure Blind AAA Architecture)\n";
     std::cout << "  Engine ABI Version: 0x" << std::hex << core::ENGINE_ABI_VERSION << std::dec << "\n";
