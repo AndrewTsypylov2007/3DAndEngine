@@ -134,9 +134,5 @@ extern "C" {
 }
 #endif
 
-#define DECLARE_ENGINE_PLUGIN(PluginStructInstance) \
-    extern "C" { \
-        ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { \
-            return &PluginStructInstance; \
-        } \
-    }
+// Макрос объявлен в одну строку — никаких обратных слэшей '\' и предупреждений препроцессора!
+#define DECLARE_ENGINE_PLUGIN(PluginStructInstance) extern "C" { ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { return &PluginStructInstance; } }
