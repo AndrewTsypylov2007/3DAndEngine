@@ -11,6 +11,9 @@
 #include <memory>
 #include <cstdint>
 #include <iomanip>
+#include <string>
+#include <string_view>
+#include <sstream>
 
 #include "Types.h"
 #include "EcsRegistry.h"
@@ -18,10 +21,15 @@
 #include "JobSystem.h"
 #include "PluginContract.h"
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // Подавление информационного предупреждения C4324 о padding
+#endif
+
 namespace core {
 
     // ==============================================================================
-    // THREAD-SAFE SERVICE REGISTRY (AAA Interface Matrix)
+    // 1. ДВУХУРОВНЕВЫЙ THREAD-SAFE SERVICE REGISTRY (O(1) Fast Slots + Dynamic Hash)
     // ==============================================================================
     class ServiceRegistry {
     private:
@@ -33,7 +41,9 @@ namespace core {
 
     public:
         ServiceRegistry() = default;
-        ~ServiceRegistry() = default;
+        ~ServiceRegistry() {
+            clear();
+        }
 
         ServiceRegistry(const ServiceRegistry&) = delete;
         ServiceRegistry& operator=(const ServiceRegistry&) = delete;
@@ -58,6 +68,20 @@ namespace core {
             return (it != dynamic_services_.end()) ? it->second : nullptr;
         }
 
+        bool has_system(SystemID id) const {
+            return get_system(id) != nullptr;
+        }
+
+        void unregister_system(SystemID id) {
+            std::unique_lock lock(mutex_);
+            if (id > 0 && id < FAST_SLOT_COUNT) {
+                fast_slots_[id] = nullptr;
+            }
+            else {
+                dynamic_services_.erase(id);
+            }
+        }
+
         void clear() {
             std::unique_lock lock(mutex_);
             for (size_t i = 0; i < FAST_SLOT_COUNT; ++i) {
@@ -67,20 +91,58 @@ namespace core {
         }
     };
 
+    // ==============================================================================
+    // 2. МАТРИЦА ПОКАДРОВОГО ОБМЕНА ДАННЫМИ (Frame Data Exchange Matrix)
+    // ==============================================================================
+    class FrameDataBus {
+    private:
+        std::unordered_map<FrameDataId, void*> data_slots_;
+        mutable std::shared_mutex              mutex_;
+
+    public:
+        FrameDataBus() = default;
+
+        void set_data(FrameDataId id, void* ptr) {
+            std::unique_lock lock(mutex_);
+            data_slots_[id] = ptr;
+        }
+
+        void* get_data(FrameDataId id) const {
+            std::shared_lock lock(mutex_);
+            auto it = data_slots_.find(id);
+            return (it != data_slots_.end()) ? it->second : nullptr;
+        }
+
+        void clear_frame() {
+            std::unique_lock lock(mutex_);
+            data_slots_.clear();
+        }
+    };
+
+    // ==============================================================================
+    // 3. КОНФИГУРАЦИЯ И ТЕЛЕМЕТРИЯ ДВИЖКА
+    // ==============================================================================
     struct EngineConfig {
-        double   fixed_timestep = 1.0 / 60.0; // 60 Гц фиксированная физика
-        float    max_delta_time = 0.1f;        // 100 мс максимум (защита от лагов)
-        uint32_t worker_threads = 0;           // 0 = автоопределение ядер CPU
+        double      fixed_timestep = 1.0 / 60.0; // 60 Гц тактовая частота физики
+        float       max_delta_time = 0.1f;        // 100 мс макс. скачок (защита от spiral of death)
+        uint32_t    worker_threads = 0;           // 0 = автоопределение потоков CPU
+        uint64_t    max_frames = 0;           // 0 = бесконечный цикл; >0 = ограничение (для CI / тестов)
+        bool        auto_stop_on_empty = true;        // Завершать работу, если нет активных плагинов
+        std::string app_name = "3DAndEngine Runtime v0.4.0";
     };
 
     struct FrameStats {
         uint64_t total_frames{ 0 };
         float    fps{ 0.0f };
         float    frame_time_ms{ 0.0f };
+        float    min_frame_time_ms{ 9999.0f };
+        float    max_frame_time_ms{ 0.0f };
+        float    physics_time_ms{ 0.0f };
+        float    render_time_ms{ 0.0f };
     };
 
     // ==============================================================================
-    // MAIN APPLICATION MACHINE (v0.4.0 AAA Blind Engine Driver)
+    // 4. ГЛАВНОЕ МИКРОЯДРО ДВИЖКА (AAA Microkernel Machine)
     // ==============================================================================
     class Application {
     private:
@@ -88,6 +150,7 @@ namespace core {
         EventBus                      event_bus_;
         JobSystem                     job_system_;
         ServiceRegistry               services_;
+        FrameDataBus                  frame_data_;
 
         std::atomic<bool>             is_running_{ false };
         EngineConfig                  config_;
@@ -95,7 +158,7 @@ namespace core {
 
         std::vector<PluginInterface*> plugins_;
 
-        // --- C-ABI NULL-ЗАГЛУШКИ ПО УМОЛЧАНИЮ ---
+        // --- C-ABI NULL-РЕАЛИЗАЦИИ БАЗОВЫХ ПОДСИСТЕМ ---
         InputAPI null_input_api_{
             [](int) -> bool { return false; },
             [](int) -> bool { return false; },
@@ -127,14 +190,26 @@ namespace core {
         };
 
         LogAPI null_log_api_{
-            [](LogLevel, const char* channel, const char* msg) {
-                std::cout << "[" << (channel ? channel : "Core") << "] "
-                          << (msg ? msg : "") << std::endl;
+            [](LogLevel level, const char* channel, const char* msg) {
+                const char* lvl_str = "INFO";
+                switch (level) {
+                    case LogLevel::Trace: lvl_str = "TRACE"; break;
+                    case LogLevel::Info:  lvl_str = "INFO";  break;
+                    case LogLevel::Warn:  lvl_str = "WARN";  break;
+                    case LogLevel::Error: lvl_str = "ERROR"; break;
+                    case LogLevel::Fatal: lvl_str = "FATAL"; break;
+                }
+                std::cout << "[" << lvl_str << "][" << (channel ? channel : "Core") << "] "
+                          << (msg ? msg : "") << "\n";
             }
         };
 
+        // Статический мост для C-функций
         static void* BridgeGetSystem(SystemID id);
         static void  BridgeRegisterSystem(SystemID id, void* ptr);
+        static void* BridgeGetFrameData(FrameDataId id);
+        static void  BridgeSetFrameData(FrameDataId id, void* ptr);
+
         inline static Application* s_active_instance = nullptr;
 
     public:
@@ -142,14 +217,14 @@ namespace core {
             : config_(config) {
             s_active_instance = this;
 
-            // Регистрация базовых заглушек через токены sys_id
+            // Регистрация систем по умолчанию
             services_.register_system(sys_id::Input, &null_input_api_);
             services_.register_system(sys_id::Audio, &null_audio_api_);
             services_.register_system(sys_id::Renderer, &null_render_api_);
             services_.register_system(sys_id::Assets, &null_asset_api_);
             services_.register_system(sys_id::Log, &null_log_api_);
 
-            // Подписка на системные события выхода
+            // Подписка на системные сигналы завершения
             event_bus_.subscribe("engine/exit"_id, [this](uint64_t) { stop(); });
             event_bus_.subscribe("app/quit"_id, [this](uint64_t) { stop(); });
         }
@@ -164,11 +239,23 @@ namespace core {
         Application(const Application&) = delete;
         Application& operator=(const Application&) = delete;
 
+        // =========================================================================
+        // РЕГИСТРАЦИЯ И ЗАГРУЗКА ПЛАГИНОВ
+        // =========================================================================
         void registerPlugin(PluginInterface* plugin) {
             if (!plugin) return;
 
+            // Проверка ABI-совместимости
+            if (plugin->abi_version != ENGINE_ABI_VERSION) {
+                std::cerr << "[Core Error] Плагин '" << (plugin->name ? plugin->name : "Unknown")
+                    << "' несовместим по ABI! (Плагин: 0x" << std::hex << plugin->abi_version
+                    << ", Ядро: 0x" << ENGINE_ABI_VERSION << std::dec << ")\n";
+                return;
+            }
+
             plugins_.push_back(plugin);
 
+            // Сортировка по приоритету выполнения (меньшее число = раньше запуск)
             std::sort(plugins_.begin(), plugins_.end(),
                 [](const PluginInterface* a, const PluginInterface* b) {
                     return a->priority < b->priority;
@@ -177,10 +264,19 @@ namespace core {
 
             EngineContext ctx = createEngineContext();
             if (plugin->on_load) {
-                plugin->on_load(&ctx);
+                try {
+                    plugin->on_load(&ctx);
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "[Core Error] Исключение в on_load плагина '"
+                        << plugin->name << "': " << e.what() << "\n";
+                }
             }
         }
 
+        // =========================================================================
+        // ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ КАДРОВОГО КОНВЕЙЕРА (Main Loop)
+        // =========================================================================
         void run() {
             job_system_.initialize(config_.worker_threads);
             is_running_.store(true, std::memory_order_release);
@@ -203,39 +299,61 @@ namespace core {
 
                 accumulator += frame_dt;
 
-                // 1. ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ (Fixed Timestep 60 Гц)
+                // --- 1. ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ (Fixed Timestep 60 Hz) ---
+                auto physics_start = Clock::now();
                 while (accumulator >= config_.fixed_timestep) {
                     float fixed_dt = static_cast<float>(config_.fixed_timestep);
                     for (auto* plugin : plugins_) {
                         if (plugin && plugin->on_fixed_update) {
-                            plugin->on_fixed_update(fixed_dt);
+                            try {
+                                plugin->on_fixed_update(fixed_dt);
+                            }
+                            catch (const std::exception& e) {
+                                std::cerr << "[Core Loop] Ошибка в on_fixed_update: " << e.what() << "\n";
+                            }
                         }
                     }
                     accumulator -= config_.fixed_timestep;
                 }
+                stats_.physics_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - physics_start).count();
 
-                // 2. ГЕЙМПЛЕЙНЫЙ ШАГ КАДРА (Variable Update)
+                // --- 2. ГЕЙМПЛЕЙНЫЙ ШАГ КАДРА (Variable Update) ---
                 for (auto* plugin : plugins_) {
                     if (plugin && plugin->on_update) {
-                        plugin->on_update(frame_dt);
+                        try {
+                            plugin->on_update(frame_dt);
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "[Core Loop] Ошибка в on_update: " << e.what() << "\n";
+                        }
                     }
                 }
 
-                // 3. ФАЗА ОТРИСОВКИ С ИНТЕРПОЛЯЦИЕЙ (Render Step)
+                // --- 3. ФАЗА ОТРИСОВКИ С ИНТЕРПОЛЯЦИЕЙ (Render Step) ---
+                auto render_start = Clock::now();
                 float alpha = static_cast<float>(accumulator / config_.fixed_timestep);
                 for (auto* plugin : plugins_) {
                     if (plugin && plugin->on_render) {
-                        plugin->on_render(alpha);
+                        try {
+                            plugin->on_render(alpha);
+                        }
+                        catch (const std::exception& e) {
+                            std::cerr << "[Core Loop] Ошибка в on_render: " << e.what() << "\n";
+                        }
                     }
                 }
+                stats_.render_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - render_start).count();
 
-                // 4. ОЧИСТКА БУФЕРА СОБЫТИЙ КАДРА
+                // --- 4. ПОСТ-КАДРОВАЯ ОЧИСТКА И ОБРАБОТКА СОБЫТИЙ ---
                 event_bus_.clear();
+                frame_data_.clear_frame();
 
-                // 5. ТЕЛЕМЕТРИЯ
+                // --- 5. ТЕЛЕМЕТРИЯ ---
                 stats_.total_frames++;
                 frames_in_second++;
                 stats_.frame_time_ms = frame_dt * 1000.0f;
+                stats_.min_frame_time_ms = std::min(stats_.min_frame_time_ms, stats_.frame_time_ms);
+                stats_.max_frame_time_ms = std::max(stats_.max_frame_time_ms, stats_.frame_time_ms);
 
                 auto now = Clock::now();
                 if (std::chrono::duration<float>(now - fps_timer).count() >= 1.0f) {
@@ -244,19 +362,28 @@ namespace core {
                     fps_timer = now;
                 }
 
-                if (plugins_.empty()) {
+                // --- 6. ПРОВЕРКА УСЛОВИЙ ВЫХОДА ДЛЯ CI / HEADLESS ---
+                if (config_.max_frames > 0 && stats_.total_frames >= config_.max_frames) {
                     is_running_.store(false, std::memory_order_release);
+                    break;
+                }
+
+                if (plugins_.empty() && config_.auto_stop_on_empty) {
+                    is_running_.store(false, std::memory_order_release);
+                    break;
                 }
             }
 
-            // БЕЗОПАСНАЯ ВЫГРУЗКА
+            // =====================================================================
+            // БЕЗОПАСНАЯ ВЫГРУЗКА И ДЕИНИЦИАЛИЗАЦИЯ (В обратном порядке)
+            // =====================================================================
             for (auto it = plugins_.rbegin(); it != plugins_.rend(); ++it) {
                 if (*it && (*it)->on_unload) {
                     try {
                         (*it)->on_unload();
                     }
                     catch (const std::exception& e) {
-                        std::cerr << "[Core Error] Ошибка при выгрузке: " << e.what() << std::endl;
+                        std::cerr << "[Core Error] Ошибка при выгрузке плагина: " << e.what() << "\n";
                     }
                 }
             }
@@ -271,11 +398,20 @@ namespace core {
             is_running_.store(false, std::memory_order_release);
         }
 
+        bool isRunning() const {
+            return is_running_.load(std::memory_order_acquire);
+        }
+
+        // =========================================================================
+        // ДОСТУП К ПОДСИСТЕМАМ
+        // =========================================================================
         EcsRegistry& ecs() { return ecs_; }
         EventBus& eventBus() { return event_bus_; }
         JobSystem& jobSystem() { return job_system_; }
         ServiceRegistry& services() { return services_; }
+        FrameDataBus& frameData() { return frame_data_; }
         const FrameStats& stats() const { return stats_; }
+        const EngineConfig& config() const { return config_; }
 
     private:
         EngineContext createEngineContext() {
@@ -293,13 +429,16 @@ namespace core {
             ctx.get_system = &Application::BridgeGetSystem;
             ctx.register_system = &Application::BridgeRegisterSystem;
 
-            ctx.get_frame_data = nullptr;
-            ctx.set_frame_data = nullptr;
+            ctx.get_frame_data = &Application::BridgeGetFrameData;
+            ctx.set_frame_data = &Application::BridgeSetFrameData;
 
             return ctx;
         }
     };
 
+    // ==============================================================================
+    // СТАТИЧЕСКИЕ РЕАЛИЗАЦИИ МОСТОВ К C-ABI
+    // ==============================================================================
     inline void* Application::BridgeGetSystem(SystemID id) {
         return s_active_instance ? s_active_instance->services().get_system(id) : nullptr;
     }
@@ -310,4 +449,18 @@ namespace core {
         }
     }
 
+    inline void* Application::BridgeGetFrameData(FrameDataId id) {
+        return s_active_instance ? s_active_instance->frameData().get_data(id) : nullptr;
+    }
+
+    inline void Application::BridgeSetFrameData(FrameDataId id, void* ptr) {
+        if (s_active_instance) {
+            s_active_instance->frameData().set_data(id, ptr);
+        }
+    }
+
 } // namespace core
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif

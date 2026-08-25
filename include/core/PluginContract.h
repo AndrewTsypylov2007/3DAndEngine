@@ -134,5 +134,5 @@ extern "C" {
 }
 #endif
 
-// Макрос объявлен в одну строку — никаких обратных слэшей '\' и предупреждений препроцессора!
+// Экспорт фабрики плагина в одну строку (предотвращает предупреждения GCC/Clang о переносе строк)
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) extern "C" { ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { return &PluginStructInstance; } }
