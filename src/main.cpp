@@ -1,3 +1,5 @@
+#define _CRT_SECURE_NO_WARNINGS
+
 #include "../include/core/Application.h"
 #include "../include/core/PluginLoader.h"
 #include <iostream>
@@ -5,9 +7,25 @@
 #include <memory>
 #include <filesystem>
 #include <cstdlib>
+#include <string>
 
 // Декларация функции тестирования ядра
 void run_all_core_tests();
+
+// Безопасный кроссплатформенный хелпер для чтения переменных окружения
+inline bool has_env_flag(const char* name) {
+#if defined(_MSC_VER)
+    char* val = nullptr;
+    size_t len = 0;
+    if (_dupenv_s(&val, &len, name) == 0 && val != nullptr) {
+        free(val);
+        return true;
+    }
+    return false;
+#else
+    return std::getenv(name) != nullptr;
+#endif
+}
 
 int main(int argc, char* argv[]) {
     std::cout << "=================================================================\n";
@@ -15,8 +33,8 @@ int main(int argc, char* argv[]) {
     std::cout << "  Engine ABI Version: 0x" << std::hex << core::ENGINE_ABI_VERSION << std::dec << "\n";
     std::cout << "=================================================================\n\n";
 
-    // Проверяем флаги CI или автономного тестирования
-    bool is_ci_mode = (std::getenv("CI") != nullptr) || (std::getenv("GITHUB_ACTIONS") != nullptr);
+    // Определение режима CI или тестов через безопасный хелпер
+    bool is_ci_mode = has_env_flag("CI") || has_env_flag("GITHUB_ACTIONS");
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "--test" || arg == "--ci" || arg == "--headless") {
@@ -39,7 +57,7 @@ int main(int argc, char* argv[]) {
         config.fixed_timestep = 1.0 / 60.0;
         config.max_delta_time = 0.1f;
 
-        // В CI или если запущены тесты — выполняем 30 валидационных кадров конвейера и завершаем работу
+        // В CI или при запуске с флагом --test выполняем 30 кадров и выходим
         if (is_ci_mode) {
             config.max_frames = 30;
             std::cout << "[Core CI] Режим автономного тестирования активен (лимит: 30 кадров).\n";
@@ -67,8 +85,7 @@ int main(int argc, char* argv[]) {
         }
 
         if (runtime_modules.empty()) {
-            std::cout << "[Core WARNING] Модули не обнаружены. Headless-валидация...\n";
-            // Если плагинов нет, делаем 5 холостых кадров для проверки шины и выходим
+            std::cout << "[Core WARNING] Активных полезных модулей не обнаружено. Headless-валидация...\n";
             if (config.max_frames == 0) {
                 config.max_frames = 5;
             }
