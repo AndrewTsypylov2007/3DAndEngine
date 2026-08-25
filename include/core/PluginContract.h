@@ -6,26 +6,13 @@
 
 namespace core {
 
-    // Forward-декларации подсистем ядра для передачи в контекст плагина
+    // Forward-декларации подсистем ядра для EngineContext
     class EcsRegistry;
     class EventBus;
     class JobSystem;
 
     // Константа бинарного контракта ABI (0x00040000 = v0.4.0)
     constexpr uint32_t ENGINE_ABI_VERSION = 0x00040000;
-
-    // Идентификаторы базовых сервисов движка
-    using SystemID = uint64_t;
-    using FrameDataId = uint64_t;
-
-    namespace sys_id {
-        constexpr SystemID Renderer = "sys/renderer"_id;
-        constexpr SystemID Input = "sys/input"_id;
-        constexpr SystemID Audio = "sys/audio"_id;
-        constexpr SystemID Physics = "sys/physics"_id;
-        constexpr SystemID Assets = "sys/assets"_id;
-        constexpr SystemID Logger = "sys/logger"_id;
-    }
 
     enum class LogLevel : uint32_t {
         Trace = 0,
@@ -147,7 +134,6 @@ extern "C" {
 }
 #endif
 
-// Макрос экспорта для создания плагина
 #define DECLARE_ENGINE_PLUGIN(PluginStructInstance) \
     extern "C" { \
         ENGINE_PLUGIN_EXPORT core::PluginInterface* GetPluginAPI() { \

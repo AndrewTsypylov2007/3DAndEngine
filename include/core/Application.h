@@ -1,8 +1,5 @@
 #pragma once
 
-// ==============================================================================
-// 1. СИСТЕМНЫЕ ИНКЛУДЫ
-// ==============================================================================
 #include <unordered_map>
 #include <vector>
 #include <algorithm>
@@ -15,9 +12,6 @@
 #include <cstdint>
 #include <iomanip>
 
-// ==============================================================================
-// 2. ИНКЛУДЫ ПОДСИСТЕМ ДВИЖКА
-// ==============================================================================
 #include "Types.h"
 #include "EcsRegistry.h"
 #include "EventBus.h"
@@ -52,8 +46,6 @@ namespace core {
             else {
                 dynamic_services_[id] = ptr;
             }
-            std::cout << "[Core::Registry] Служба подключена к шине: 0x"
-                << std::hex << id << std::dec << std::endl;
         }
 
         void* get_system(SystemID id) const {
@@ -75,13 +67,10 @@ namespace core {
         }
     };
 
-    // ==============================================================================
-    // КОНФИГУРАЦИЯ И СТАТИСТИКА КАДРА
-    // ==============================================================================
     struct EngineConfig {
         double   fixed_timestep = 1.0 / 60.0; // 60 Гц фиксированная физика
-        float    max_delta_time = 0.1f;        // 100 мс максимум
-        uint32_t worker_threads = 0;           // 0 = авто
+        float    max_delta_time = 0.1f;        // 100 мс максимум (защита от лагов)
+        uint32_t worker_threads = 0;           // 0 = автоопределение ядер CPU
     };
 
     struct FrameStats {
@@ -106,40 +95,39 @@ namespace core {
 
         std::vector<PluginInterface*> plugins_;
 
-        // --- ТОЧНЫЕ C-ABI ЗАГЛУШКИ (Строго в порядке объявления полей структур!) ---
-
+        // --- C-ABI NULL-ЗАГЛУШКИ ПО УМОЛЧАНИЮ ---
         InputAPI null_input_api_{
-            [](int) -> bool { return false; },                          // is_key_pressed
-            [](int) -> bool { return false; },                          // is_key_just_pressed
-            [](double* x, double* y) { if (x)*x = 0.0; if (y)*y = 0.0; },// get_mouse_pos
-            [](int) -> bool { return false; },                          // is_mouse_button_pressed
-            [](double* dx, double* dy) { if (dx)*dx = 0.0; if (dy)*dy = 0.0; }, // get_mouse_delta
-            [](double* x, double* y) { if (x)*x = 0.0; if (y)*y = 0.0; } // get_mouse_wheel
+            [](int) -> bool { return false; },
+            [](int) -> bool { return false; },
+            [](double* x, double* y) { if (x)*x = 0.0; if (y)*y = 0.0; },
+            [](int) -> bool { return false; },
+            [](double* dx, double* dy) { if (dx)*dx = 0.0; if (dy)*dy = 0.0; },
+            [](double* x, double* y) { if (x)*x = 0.0; if (y)*y = 0.0; }
         };
 
         AudioAPI null_audio_api_{
-            [](const char*) -> uint32_t { return 0u; },                 // load_sound
-            [](uint32_t, float, bool) {},                               // play_sound
-            [](uint32_t) {},                                            // stop_sound
-            [](float, float, float) {},                                 // set_listener_pos
-            [](uint32_t, float, float, float) {}                        // set_sound_pos
+            [](const char*) -> uint32_t { return 0u; },
+            [](uint32_t, float, bool) {},
+            [](uint32_t) {},
+            [](float, float, float) {},
+            [](uint32_t, float, float, float) {}
         };
 
         RenderAPI null_render_api_{
-            [](uint32_t, const void*, size_t) {},                       // submit_command
-            [](uint32_t* w, uint32_t* h) { if (w)*w = 1280; if (h)*h = 720; }, // get_viewport_size
-            [](bool) {}                                                 // set_vsync
+            [](uint32_t, const void*, size_t) {},
+            [](uint32_t* w, uint32_t* h) { if (w)*w = 1280; if (h)*h = 720; },
+            [](bool) {}
         };
 
         AssetAPI null_asset_api_{
-            [](const char*, size_t* out_size) -> void* { if (out_size) *out_size = 0; return nullptr; }, // load_binary
-            [](const char*) -> char* { return nullptr; },               // load_text
-            [](void*) {},                                               // free_data
-            [](const char*) -> bool { return false; }                   // file_exists
+            [](const char*, size_t* out_size) -> void* { if (out_size) *out_size = 0; return nullptr; },
+            [](const char*) -> char* { return nullptr; },
+            [](void*) {},
+            [](const char*) -> bool { return false; }
         };
 
         LogAPI null_log_api_{
-            [](LogLevel, const char* channel, const char* msg) {        // log_message
+            [](LogLevel, const char* channel, const char* msg) {
                 std::cout << "[" << (channel ? channel : "Core") << "] "
                           << (msg ? msg : "") << std::endl;
             }
@@ -154,12 +142,12 @@ namespace core {
             : config_(config) {
             s_active_instance = this;
 
-            // Регистрация всех базовых систем по умолчанию
-            services_.register_system(SYS_INPUT, &null_input_api_);
-            services_.register_system(SYS_AUDIO, &null_audio_api_);
-            services_.register_system(SYS_RENDERER, &null_render_api_);
-            services_.register_system(SYS_ASSETS, &null_asset_api_);
-            services_.register_system(SYS_LOG, &null_log_api_);
+            // Регистрация базовых заглушек через токены sys_id
+            services_.register_system(sys_id::Input, &null_input_api_);
+            services_.register_system(sys_id::Audio, &null_audio_api_);
+            services_.register_system(sys_id::Renderer, &null_render_api_);
+            services_.register_system(sys_id::Assets, &null_asset_api_);
+            services_.register_system(sys_id::Log, &null_log_api_);
 
             // Подписка на системные события выхода
             event_bus_.subscribe("engine/exit"_id, [this](uint64_t) { stop(); });
@@ -197,8 +185,6 @@ namespace core {
             job_system_.initialize(config_.worker_threads);
             is_running_.store(true, std::memory_order_release);
 
-            std::cout << "[Core v0.4.0] AAA Игровой цикл запущен.\n";
-
             using Clock = std::chrono::high_resolution_clock;
             auto last_time = Clock::now();
             double accumulator = 0.0;
@@ -217,7 +203,7 @@ namespace core {
 
                 accumulator += frame_dt;
 
-                // 1. ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ (Fixed Timestep)
+                // 1. ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ (Fixed Timestep 60 Гц)
                 while (accumulator >= config_.fixed_timestep) {
                     float fixed_dt = static_cast<float>(config_.fixed_timestep);
                     for (auto* plugin : plugins_) {
@@ -228,7 +214,7 @@ namespace core {
                     accumulator -= config_.fixed_timestep;
                 }
 
-                // 2. ОСНОВНОЙ ШАГ КАДРА (Variable Update)
+                // 2. ГЕЙМПЛЕЙНЫЙ ШАГ КАДРА (Variable Update)
                 for (auto* plugin : plugins_) {
                     if (plugin && plugin->on_update) {
                         plugin->on_update(frame_dt);
@@ -279,8 +265,6 @@ namespace core {
             event_bus_.unsubscribeAll();
             services_.clear();
             job_system_.shutdown();
-
-            std::cout << "[Core] Все подсистемы ядра остановлены.\n";
         }
 
         void stop() {
@@ -300,11 +284,11 @@ namespace core {
             ctx.event_bus = &event_bus_;
             ctx.job_system = &job_system_;
 
-            ctx.input = static_cast<InputAPI*>(services_.get_system(SYS_INPUT));
-            ctx.audio = static_cast<AudioAPI*>(services_.get_system(SYS_AUDIO));
-            ctx.renderer = static_cast<RenderAPI*>(services_.get_system(SYS_RENDERER));
-            ctx.assets = static_cast<AssetAPI*>(services_.get_system(SYS_ASSETS));
-            ctx.logger = static_cast<LogAPI*>(services_.get_system(SYS_LOG));
+            ctx.input = static_cast<InputAPI*>(services_.get_system(sys_id::Input));
+            ctx.audio = static_cast<AudioAPI*>(services_.get_system(sys_id::Audio));
+            ctx.renderer = static_cast<RenderAPI*>(services_.get_system(sys_id::Renderer));
+            ctx.assets = static_cast<AssetAPI*>(services_.get_system(sys_id::Assets));
+            ctx.logger = static_cast<LogAPI*>(services_.get_system(sys_id::Log));
 
             ctx.get_system = &Application::BridgeGetSystem;
             ctx.register_system = &Application::BridgeRegisterSystem;
