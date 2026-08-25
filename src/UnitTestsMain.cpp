@@ -73,6 +73,8 @@ namespace core {
         Entity next_entity_ = 1;
         std::vector<EcsListener> listeners_;
         std::unordered_map<Entity, std::unordered_map<ComponentTypeId, void*>> storage_;
+        std::vector<std::function<void()>> deleters_;
+
     public:
         ~EcsRegistry() {
             clear();
@@ -89,7 +91,10 @@ namespace core {
         template<typename T>
         void addComponent(Entity ent, T component) {
             ComponentTypeId id = hash_str(typeid(T).name());
-            storage_[ent][id] = new T(component);
+            T* allocated = new T(component);
+            storage_[ent][id] = allocated;
+            deleters_.push_back([allocated]() { delete allocated; });
+
             for (auto& l : listeners_) {
                 if (l.on_component_added) {
                     l.on_component_added(ent, id);
@@ -108,11 +113,10 @@ namespace core {
         }
 
         void clear() {
-            for (auto& [ent, comps] : storage_) {
-                for (auto& [cid, ptr] : comps) {
-                    delete static_cast<char*>(ptr);
-                }
+            for (auto& del : deleters_) {
+                if (del) del();
             }
+            deleters_.clear();
             storage_.clear();
             listeners_.clear();
             next_entity_ = 1;
