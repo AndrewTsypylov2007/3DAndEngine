@@ -1,14 +1,24 @@
-# Как писать плагин для 3DAndEngine Core (кратко)
+# Developer Guide: Authoring Plugins for 3DAndEngine Core
 
-Файл содержит минимальную и понятную инструкцию, как создать плагин‑библиотеку, собрать и протестировать её с ядром.
+This document provides a concise, step-by-step specification for engineering, compiling, and validating a dynamic shared library (plugin) compatible with the `3DAndEngine` microkernel.
 
-1) Контракт плагина
-- Экспортируемые C-функции (обязательные):
-  - CreatePlugin() -> core::IPlugin*  // создаёт экземпляр
-  - DestroyPlugin(core::IPlugin*)     // удаляет экземпляр
-  - GetPluginManifest() -> const char* // возвращает JSON-манифест (nul-terminated)
+---
 
-2) Минимальный skeleton (plugin.cpp)
+## 1. The Plugin Binary Contract (C-ABI)
+
+To enforce strict boundary isolation and eliminate C++ compiler runtime mismatches, the engine core communicates with external modules via an immutable, low-level **C-ABI Export Layer**. Every plugin must explicitly export the following three functions:
+
+*   `CreatePlugin()` $\rightarrow$ `core::IPlugin*`  
+    Allocates and returns a raw pointer to the custom plugin instance.
+*   `DestroyPlugin(core::IPlugin*)` $\rightarrow$ `void`  
+    Safely deallocates the plugin instance and frees associated heap memory.
+*   `GetPluginManifest()` $\rightarrow$ `const char*`  
+    Returns a null-terminated, raw ASCII string containing a valid JSON manifest string for version and dependency validation.
+
+---
+
+## 2. Minimal Architecture Skeleton (`plugin.cpp`)
+
 ```cpp
 #include "core/IPlugin.h"
 #include "core/ServiceManager.h"
@@ -17,56 +27,51 @@
 namespace core {
 class MyPlugin : public IPlugin {
 public:
-  bool initialize(ServiceManager &services) override {
-	std::cerr << "[MyPlugin] initialize\n";
-	return true; // вернуть false при ошибке
-  }
-  void shutdown() override {
-	std::cerr << "[MyPlugin] shutdown\n";
-  }
-};
-}
-
-extern "C" {
-  core::IPlugin* CreatePlugin() { return new core::MyPlugin(); }
-  void DestroyPlugin(core::IPlugin* p) { delete p; }
-  const char* GetPluginManifest() {
-	return R"({"name":"my_plugin","version":"0.0.1","core_version_required":"0.0.1","enabled":true})";
-  }
-}
+    // Invoked by the microkernel upon successful loading and C-ABI validation
+    bool initialize(ServiceManager& services) override {
+        std::cerr \)<TARGET_FILE_DIR:engine_core>
+  COMMENT "Deploying my_plugin binary artifact directly to engine_core run path")
 ```
 
-3) Пример CMakeLists.txt для плагина (plugins/my_plugin/CMakeLists.txt)
-```cmake
-add_library(my_plugin SHARED plugin.cpp)
-target_include_directories(my_plugin PRIVATE ${CMAKE_SOURCE_DIR}/include)
+---
 
-# Копируем плагин рядом с engine_core после сборки
-add_custom_command(TARGET my_plugin POST_BUILD
-  COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:my_plugin> $<TARGET_FILE_DIR:engine_core>
-  COMMENT "Copy my_plugin to engine_core output directory")
-```
+## 4. Manifest Specification (`GetPluginManifest`)
 
-4) Манифест (GetPluginManifest) — поля
-- name (string)
-- version (semver string)
-- core_version_required (semver string)
-- enabled (bool) — если false, ядро пропустит плагин при discover
+The JSON string provided by the module boundary requires the following keys:
+*   `name` *(string)*: Unique identifier of the plugin module.
+*   `version` *(semver string)*: Version of the current plugin payload.
+*   `core_version_required` *(semver string)*: Target engine engine SDK boundary layout.
+*   `enabled` *(bool)*: Hardware-level skip token. If set to `false`, the microkernel runtime discover cycle completely ignores the binary during exploration.
 
-5) Сборка и тест
-- Сборка всего проекта (core + плагин):
-  cmake -S . -B build
-  cmake --build build --config Debug
-- После сборки плагин окажется рядом с engine_core (post-build copy); запустите engine_core и смотрите логи — должно появиться [MyPlugin] initialize.
+---
 
-6) Советы
-- Собирайте плагин теми же настройками ABI/компилятора и vcpkg triplet, что и core.
-- initialize должен возвращать false при ошибке — тогда Core выполнит откат (rollback).
-- shutdown должен безопасно освобождать ресурсы и корректно работать при повторных вызовах.
-- Для регистрации сервисов используйте services.registerService<T, Deps...>(shared_ptr<T>) внутри initialize.
+## 5. Compilation & Lifecycle Verification
 
-7) Дополнительно
-- Для отключения плагина без удаления файла поставьте "enabled": false в manifest.
-- Чтобы сделать плагин с зависимостями (glm, assimp и т.д.), добавьте find_package / target_link_libraries в CMakeLists плагина и используйте vcpkg.
+1.  **Generate and Compile the Engine Suite (Core + Target Plugin):**
+    ```bash
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+    cmake --build build --config Debug --parallel
+    ```
+2.  **Verify Module Attachment:**
+    The post-build automation macro clones the `.dll`/`.so` module directly adjacent to the `engine_core` executable block. Run `engine_core` and inspect stdout/stderr. A successful hook outputs:  
+    `[MyPlugin] Initializing core modules...`
 
-Готовый шаблон можно скопировать в plugins/new_plugin и подставить своё имя/логику.
+---
+
+## 6. Architectural Best Practices
+
+*   **ABI Integrity:** Ensure the target plugin is built utilizing the exact same compiler version, flags (`/std:c++20` or `-std=c++20`), and `vcpkg` target triplet configuration as the main microkernel host. 
+*   **Initialization Rollback:** If `initialize()` encounters a critical failure (e.g., failed VRAM allocation, missing asset pipelines), it **must** return `false`. The engine core will intercept this state and trigger a safety asset rollback sequence.
+*   **Re-entrant Shutdown Safety:** The `shutdown()` function must be completely idempotent. It must release memory footprints safely, with robust guards to protect against double-free errors or memory corruption during rapid re-initialization passes.
+*   **Service Registration:** To publish API bindings across the abstract engine system landscape, inject instances into the application context using the service manager:  
+    `services.registerService<T, Dependencies...>(std::make_shared<T>());`
+
+---
+
+## 7. Advanced Configurations
+
+*   **Zero-File-Deletion Disabling:** To disable a plugin without removing the compiled binary file from the installation path, set `"enabled": false` inside the C-ABI manifest return payload.
+*   **External Dependencies:** If your plugin introduces heavy third-party assets (`glm`, `assimp`, `flecs`), manage them by adding `find_package` calls and linking them directly via `target_link_libraries` in the plugin’s local `CMakeLists.txt`, leveraging `vcpkg` manifest parameters.
+
+---
+*The provided blueprint can be freely copied into `plugins/new_plugin` to serve as a fast boilerplate skeleton for customized engine subsystems.*
