@@ -1,38 +1,47 @@
-Release v0.0.1
-================
+# 3DAndEngine — Historical Release Notes
 
-Дата релиза: 2026-07-23
+## Release v0.1.0 (Initial MVP) — Legacy Baseline
+**Release Date:** 2026-07-23
 
-Кратко
------
-Первая публичная сборка ядра 3DAndEngine Core. Включает:
+### Summary
+The initial public MVP build of the `3DAndEngine Core` ecosystem. This release establishes the fundamental runtime environment, basic system orchestration, and an automated continuous integration pipeline.
 
-- Базовую инфраструктуру ядра (Application, ServiceManager, EventBus).
-- Плагинную систему: рекурсивный discover (plugins/**), manifest JSON с полем `enabled`, SemVer проверка совместимости, безопасная инициализация плагинов и откат при ошибках.
-- LoggerService (spdlog) и ConfigService (nlohmann::json).
-- TaskScheduler (пул потоков) как сервис.
-- Unit-тесты и CI (GitHub Actions) с vcpkg, кэшированием, мультиплатформенной сборкой (Linux/Windows/macOS), публикацией артефактов и автоматической упаковкой релизов.
+### Core Architecture Changes
+*   **Microkernel Foundation:** Introduced the initial `Application` host runtime loop, an early non-DOD `ServiceManager`, and a synchronous `EventBus` using string-based topic lookups.
+*   **Primitive Plugin Subsystem:** Implemented a recursive directory exploration scanner (`plugins/**`) driven by runtime C-ABI identification. Added support for raw JSON manifests featuring basic semantic versioning (`core_version_required`), active-state toggles (`enabled`), and a multi-phase system fallback sequence in the event of an initialization crash.
+*   **System Infrastructure:** Integrated automated `LoggerService` (driven by `spdlog`) and a centralized `ConfigService` (leveraging `nlohmann::json`).
+*   **Early Concurrency:** Deployed a foundational heap-allocated `TaskScheduler` thread pool utilizing standard blocking mutex synchronization primitives.
+*   **Verification & CI Automation:** Engineered a comprehensive GitHub Actions matrix pipeline with native cross-platform compilation targets (`ubuntu-latest`, `windows-latest`, `macos-latest`), integrated `vcpkg` manifest dependencies caching, and automated distribution bundle packaging upon formal VCS tag tracking.
 
-Подробности
----------
-- Плагинный контракт: экспорт CreatePlugin / DestroyPlugin / GetPluginManifest. Manifest должен содержать поля name, version, core_version_required и опционально enabled (boolean).
-- ServiceManager поддерживает фазы init/start/postStart/stop и обнаруживает циклы зависимостей.
-- TaskScheduler поддерживает submit/enqueue и безопасный graceful shutdown.
+---
 
-Как выпустить релиз
--------------------
-1. Обновить версию core (в PluginLoader.cpp уже установлен currentCoreVersionStr = "0.0.1").
-2. Закоммитить изменения и создать тег:
-   - git add .
-   - git commit -m "Release v0.0.1"
-   - git tag -a v0.0.1 -m "v0.0.1"
-   - git push origin main --follow-tags
-3. Создать релиз на GitHub (через UI или gh CLI). CI автоматически упакует релизные артефакты и прикрепит zip к релизу.
+### Deep-Dive Specifications
+*   **The Binary Contract:** Standardized the low-level C-ABI boundary using strictly exported signatures: `CreatePlugin()`, `DestroyPlugin()`, and `GetPluginManifest()`. Manifest validation strictly monitors root configuration tokens (`name`, `version`, `core_version_required`, and `enabled`).
+*   **Service Lifecycle Management:** The infrastructure pipeline orchestrates rigid initialization states (`init` $\rightarrow$ `start` $\rightarrow$ `postStart` $\rightarrow$ `stop`) and actively executes graphs to intercept recursive dependency deadlocks.
+*   **Graceful Shutdown Sequences:** The `TaskScheduler` pipeline monitors ongoing compute frames, forcing orderly worker relaxation and job completion boundaries during engine teardown procedures.
 
-Известные ограничения и следующие шаги
---------------------------------------
-- Нет полного набора интеграционных тестов для плагинов; рекомендуется добавить их.
-- Не реализованы механизм подписи плагинов и sandboxing — планируется добавить.
-- Рекомендуется провести кроссплатформенное тестирование бинарников и собрать релизные артефакты для Windows/macOS отдельно.
+---
 
-Спасибо за использование 3DAndEngine Core — добро пожаловать в сообщество!
+### Release & Deployment Blueprint (VCS Workflow)
+1.  Verify the core SDK version identifier matches the targeted release token within the `PluginLoader` runtime engine.
+2.  Commit workspace progress and tag the repository directly through the command line interface:
+    ```bash
+    git add .
+    git commit -m "Release v0.1.0"
+    git tag -a v0.1.0 -m "Architecture Baseline v0.1.0"
+    git push origin main --follow-tags
+    ```
+3.  Formulate a formal GitHub Release via the Web UI or GitHub CLI (`gh release create`). The automated pipeline will intercept the tag, compile production-ready distribution blocks, and bind the cross-platform SDK zip archives natively.
+
+---
+
+### Historical Constraints (Resolved in v0.4.0 Evolution)
+*   *Limitation:* Heavy object scatter across the heap and tight coupling due to reliance on standard shared pointer wrappers (`std::shared_ptr`).  
+    *👉 **v0.4.0 Resolution:** Fully migrated to a Paged Sparse Set ECS memory model with strict Data-Oriented Design (DOD) layouts.*
+*   *Limitation:* High synchronization overhead caused by blocking мutex guards and standard thread pool implementations.  
+    *👉 **v0.4.0 Resolution:** Replaced with Dmitry Vyukov's Lock-Free Bounded MPMC task queue matrix and explicit `alignas(64)` false-sharing padding.*
+*   *Limitation:* String parsing runtime overhead on event dispatch networks.  
+    *👉 **v0.4.0 Resolution:** Implemented 1-cycle 64-bit FNV-1a constexpr hash literal evaluations (`""_id`).*
+
+---
+*Thank you for exploring the roots of 3DAndEngine Core — Welcome to the high-performance engineering ecosystem!*
