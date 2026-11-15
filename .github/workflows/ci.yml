@@ -1,4 +1,4 @@
-name: CI/CD v0.4.0 Core & SDK
+name: CI/CD Core & SDK
 
 on:
   push:
@@ -39,61 +39,17 @@ jobs:
       - name: Build Core & Tests (${{ matrix.config }})
         run: cmake --build build --config ${{ matrix.config }} --parallel
 
-      - name: Run Embedded Engine & Unit Tests Binary
+      - name: Run Core Tests (CTest)
         shell: bash
         env:
           CI: "1"
-        run: |
-          echo "[CI] Executing standalone tests..."
-          
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            # Поиск бинарника 3DAndEngine.exe на Windows
-            EXE_PATH=""
-            for CANDIDATE in "./bin/Release/3DAndEngine.exe" "./bin/3DAndEngine.exe" "./build/bin/Release/3DAndEngine.exe" "./build/bin/3DAndEngine.exe" "./build/Release/3DAndEngine.exe" "./build/3DAndEngine.exe"; do
-              if [ -f "$CANDIDATE" ]; then
-                EXE_PATH="$CANDIDATE"
-                break
-              fi
-            done
-            
-            if [ -z "$EXE_PATH" ]; then
-              echo "[CI ERROR] Binary 3DAndEngine.exe not found! Listing files:"
-              find . -name "*.exe" || true
-              exit 1
-            fi
-            
-            echo "[CI] Running Windows binary: $EXE_PATH"
-            "$EXE_PATH" --ci
-          else
-            # Поиск бинарника 3DAndEngine на Linux и macOS
-            EXE_PATH=""
-            for CANDIDATE in "./bin/3DAndEngine" "./bin/Release/3DAndEngine" "./build/bin/3DAndEngine" "./build/3DAndEngine"; do
-              if [ -f "$CANDIDATE" ]; then
-                EXE_PATH="$CANDIDATE"
-                break
-              fi
-            done
-            
-            if [ -z "$EXE_PATH" ]; then
-              EXE_PATH=$(find . -type f -name "3DAndEngine" -not -path "*/.*" | head -n 1)
-            fi
-            
-            if [ -z "$EXE_PATH" ] || [ ! -f "$EXE_PATH" ]; then
-              echo "[CI ERROR] Binary 3DAndEngine not found! Listing files:"
-              find . -type f -perm +111 -o -name "3DAndEngine*" || true
-              exit 1
-            fi
-            
-            echo "[CI] Running POSIX binary: $EXE_PATH"
-            chmod +x "$EXE_PATH"
-            "$EXE_PATH" --ci
-          fi
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
 
   # ============================================================================
-  # 2. СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗНОГО SDK БАНДЛА (v0.4.0 Commercial Package)
+  # 2. СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗНОГО SDK БАНДЛА
   # ============================================================================
   release_build:
-    name: Package and Publish SDK v0.4.0 (${{ matrix.os }})
+    name: Package and Publish SDK (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs: [build_and_test]
     if: github.event_name == 'release'
@@ -118,12 +74,12 @@ jobs:
       - name: Build Release Artifacts
         run: cmake --build build --config Release --parallel
 
-      - name: Package SDK v0.4.0 Structure
+      - name: Package SDK Structure
         shell: pwsh
         run: |
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
           
-          # Создаем дерево каталогов для игрового SDK v0.4.0
+          # Создаем дерево каталогов для игрового SDK
           New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
           New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
           New-Item -ItemType Directory -Force -Path "dist/bin/assets"
@@ -133,11 +89,8 @@ jobs:
           
           # 1. Копирование исполняемых файлов
           $BinSearchPaths = @(
-            "bin/Release/3DAndEngine*", 
-            "bin/3DAndEngine*", 
             "build/bin/Release/3DAndEngine*", 
-            "build/Release/3DAndEngine*",
-            "build/3DAndEngine*"
+            "build/bin/3DAndEngine*"
           )
           
           foreach ($Path in $BinSearchPaths) {
@@ -170,13 +123,14 @@ jobs:
           # 4. Создание zip-архива SDK
           Set-Location dist
           $OsName = "${{ matrix.os }}".Replace("-latest", "")
-          $ZipName = "../3DAndEngine-SDK-v0.4.0-$OsName.zip"
+          $Tag = "${{ github.event.release.tag_name }}"
+          $ZipName = "../3DAndEngine-SDK-$Tag-$OsName.zip"
           cmake -E tar cfv $ZipName --format=zip .
           Write-Host "[CI] Successfully generated SDK archive: $ZipName"
 
       - name: Upload Release Asset to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          files: 3DAndEngine-SDK-v0.4.0-*.zip
+          files: 3DAndEngine-SDK-*.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
