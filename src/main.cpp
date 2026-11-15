@@ -78,6 +78,11 @@ int main(int argc, char* argv[]) {
             std::cout << "[Core CI] Режим автономного тестирования активен (лимит: 30 кадров).\n";
         }
 
+        // ВАЖНО: загруженные библиотеки должны пережить Application. Локальные объекты разрушаются
+        // в обратном порядке объявления, поэтому runtime_modules объявлен ДО app: иначе плагины
+        // выгружались бы раньше, чем ECS уничтожит пулы компонентов, чей код живёт в этих плагинах.
+        std::vector<std::unique_ptr<core::LoadedPlugin>> runtime_modules;
+
         auto app = std::make_unique<core::Application>(config);
 
         std::filesystem::path exe_dir = core::platform::get_executable_dir();
@@ -86,7 +91,6 @@ int main(int argc, char* argv[]) {
 
         std::cout << "[Core v0.4.0] Запуск слепого рекурсивного обнаружения модулей...\n";
 
-        std::vector<std::unique_ptr<core::LoadedPlugin>> runtime_modules;
 
         if (std::filesystem::exists(primary_plugins_path)) {
             runtime_modules = core::PluginManager::discover_recursive(primary_plugins_path);
