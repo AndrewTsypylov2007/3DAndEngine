@@ -141,7 +141,7 @@ The suite currently covers:
 The repository features an automated multi-platform matrix pipeline:
 *   **Cross-Platform Matrix:** Code validation is compiled and executed natively across `ubuntu-latest`, `windows-latest`, and `macos-latest`.
 *   **CTest Quality Gate:** pull requests and commits are checked by `ctest`, which runs the core self-test and a 30-frame headless run; the job fails if any check fails.
-*   **SDK Bundle Automated Deployment:** when a release is published, CI bundles `3DAndEngine-SDK-<tag>-<OS>.zip` with the public headers, the engine binary, the docs and the test source, and attaches it to the release.
+*   **Release asset:** when a release is published, CI builds a Release binary on Windows and attaches a single file, `3DAndEngine-<tag>-windows-x64.exe`, to it. (GitHub additionally shows its automatic "Source code" archives on every release; they cannot be disabled.)
 
 ---
 

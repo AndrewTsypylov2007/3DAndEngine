@@ -54,7 +54,7 @@ The initial public MVP build of the `3DAndEngine Core` ecosystem. This release e
     git tag -a v0.1.0 -m "Architecture Baseline v0.1.0"
     git push origin master --follow-tags
     ```
-3.  Formulate a formal GitHub Release via the Web UI or GitHub CLI (`gh release create`). The automated pipeline will intercept the tag, compile production-ready distribution blocks, and bind the cross-platform SDK zip archives natively.
+3.  Formulate a formal GitHub Release via the Web UI or GitHub CLI (`gh release create`). The automated pipeline will intercept the tag, build the Windows executable and attach it to the release as a single `.exe` file.
 
 ---
 

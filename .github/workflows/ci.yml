@@ -1,4 +1,4 @@
-name: CI/CD Core & SDK
+name: CI/CD Core & Release EXE
 
 on:
   push:
@@ -46,91 +46,40 @@ jobs:
         run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
 
   # ============================================================================
-  # 2. СБОРКА И ПУБЛИКАЦИЯ РЕЛИЗНОГО SDK БАНДЛА
+  # 2. ПУБЛИКАЦИЯ РЕЛИЗА: к релизу прикрепляется только 3DAndEngine.exe
   # ============================================================================
   release_build:
-    name: Package and Publish SDK (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    name: Build and Publish Windows EXE
+    runs-on: windows-latest
     needs: [build_and_test]
     if: github.event_name == 'release'
     permissions:
       contents: write
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Set up Developer Command Prompt for MSVC
-        if: matrix.os == 'windows-latest'
         uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure CMake for Release
-        shell: bash
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 
-      - name: Build Release Artifacts
+      - name: Build Release Executable
         run: cmake --build build --config Release --parallel
 
-      - name: Package SDK Structure
+      - name: Prepare release asset
         shell: pwsh
         run: |
-          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
-          
-          # Создаем дерево каталогов для игрового SDK
-          New-Item -ItemType Directory -Force -Path "dist/bin/plugins"
-          New-Item -ItemType Directory -Force -Path "dist/bin/shaders"
-          New-Item -ItemType Directory -Force -Path "dist/bin/assets"
-          New-Item -ItemType Directory -Force -Path "dist/bin/configs"
-          New-Item -ItemType Directory -Force -Path "dist/include/core"
-          New-Item -ItemType Directory -Force -Path "dist/lib"
-          
-          # 1. Копирование исполняемых файлов
-          $BinSearchPaths = @(
-            "build/bin/Release/3DAndEngine*", 
-            "build/bin/3DAndEngine*"
-          )
-          
-          foreach ($Path in $BinSearchPaths) {
-              if (Test-Path $Path) {
-                  Get-ChildItem -Path $Path -File | Where-Object { $_.Extension -in ".exe", "" } | Copy-Item -Destination "dist/bin/" -Force
-              }
-          }
-          
-          # Запасной поиск бинарников, если они в нестандартной папке
-          if ((Get-ChildItem -Path "dist/bin" -File).Count -eq 0) {
-              Write-Warning "[CI] Running deep scan for engine binaries..."
-              Get-ChildItem -Path "build/" -Filter "3DAndEngine*" -Recurse | Where-Object { $_.Extension -in ".exe", "" } | Select-Object -First 1 | Copy-Item -Destination "dist/bin/" -Force
-          }
-          
-          # 2. Копирование всех заголовочных файлов ядра из include/core/
-          if (Test-Path "include/core") {
-              Get-ChildItem -Path "include/core/*" -Include "*.h", "*.hpp" | Copy-Item -Destination "dist/include/core/" -Force
-          }
-          
-          # 3. Копирование документации и исходного кода тестов
-          $DocFiles = @("README*", "LICENSE*", "PLUGIN_GUIDE*", "RELEASE_NOTES*")
-          foreach ($Doc in $DocFiles) {
-              Get-ChildItem -Path $Doc | Copy-Item -Destination "dist/" -Force
-          }
+          $exe = Get-ChildItem -Path build -Recurse -Filter "3DAndEngine.exe" | Select-Object -First 1
+          if (-not $exe) { throw "3DAndEngine.exe not found in build/" }
+          $name = "3DAndEngine-${{ github.event.release.tag_name }}-windows-x64.exe"
+          Copy-Item $exe.FullName $name
+          Write-Host "Release asset: $name"
 
-          if (Test-Path "src/UnitTestsMain.cpp") {
-              Copy-Item "src/UnitTestsMain.cpp" -Destination "dist/" -Force
-          }
-
-          # 4. Создание zip-архива SDK
-          Set-Location dist
-          $OsName = "${{ matrix.os }}".Replace("-latest", "")
-          $Tag = "${{ github.event.release.tag_name }}"
-          $ZipName = "../3DAndEngine-SDK-$Tag-$OsName.zip"
-          cmake -E tar cfv $ZipName --format=zip .
-          Write-Host "[CI] Successfully generated SDK archive: $ZipName"
-
-      - name: Upload Release Asset to GitHub Releases
+      - name: Upload exe to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: 3DAndEngine-SDK-*.zip
+          files: 3DAndEngine-*-windows-x64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
