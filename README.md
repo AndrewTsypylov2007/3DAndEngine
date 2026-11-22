@@ -44,18 +44,18 @@ Modules share no dependencies and are unaware of each other. They interact only 
 struct Position { float x = 0, y = 0; };
 struct Velocity { float vx = 0, vy = 0; };
 
-static core::EngineContext g_ctx{};   // keep a COPY: the pointer passed to on_load is temporary
+static core::EngineContext* g_ctx = nullptr;   // owned by Application, valid until on_unload
 
-static void on_load(core::EngineContext* ctx) { g_ctx = *ctx; }
+static void on_load(core::EngineContext* ctx) { g_ctx = ctx; }
 static void on_update(float) {}       // mandatory callback
 
 // Physics-style plugin: linearly streams over a contiguous dense array at a fixed step.
 static void on_fixed_update(float fixed_dt) {
-    auto* velocities = g_ctx.ecs->view<Velocity>();
+    auto* velocities = g_ctx->ecs->view<Velocity>();
     if (!velocities) return;
 
     velocities->each([&](core::Entity e, Velocity& vel) {
-        if (auto* pos = g_ctx.ecs->getComponent<Position>(e)) {
+        if (auto* pos = g_ctx->ecs->getComponent<Position>(e)) {
             pos->x += vel.vx * fixed_dt;
             pos->y += vel.vy * fixed_dt;
         }

@@ -12,6 +12,7 @@
 #endif
 
 #include <unordered_map>
+#include <functional>
 #include <vector>
 #include <algorithm>
 #include <chrono>
@@ -44,19 +45,31 @@ namespace core {
     private:
         std::unordered_map<SystemID, void*> services_;
         mutable std::shared_mutex           mutex_;
+        std::function<void()>               on_change_;
+
+        // Уведомление вызывается уже после освобождения блокировки, чтобы колбэк мог читать реестр.
+        void notify_changed() {
+            if (on_change_) on_change_();
+        }
 
     public:
         ServiceRegistry() = default;
-        ~ServiceRegistry() {
-            clear();
+        ~ServiceRegistry() = default;
+
+        // Колбэк вызывается при каждом изменении набора служб (регистрация, удаление, очистка).
+        void set_change_callback(std::function<void()> callback) {
+            on_change_ = std::move(callback);
         }
 
         ServiceRegistry(const ServiceRegistry&) = delete;
         ServiceRegistry& operator=(const ServiceRegistry&) = delete;
 
         void register_system(SystemID id, void* ptr) {
-            std::unique_lock lock(mutex_);
-            services_[id] = ptr;
+            {
+                std::unique_lock lock(mutex_);
+                services_[id] = ptr;
+            }
+            notify_changed();
         }
 
         void* get_system(SystemID id) const {
@@ -70,13 +83,19 @@ namespace core {
         }
 
         void unregister_system(SystemID id) {
-            std::unique_lock lock(mutex_);
-            services_.erase(id);
+            {
+                std::unique_lock lock(mutex_);
+                services_.erase(id);
+            }
+            notify_changed();
         }
 
         void clear() {
-            std::unique_lock lock(mutex_);
-            services_.clear();
+            {
+                std::unique_lock lock(mutex_);
+                services_.clear();
+            }
+            notify_changed();
         }
     };
 
@@ -140,6 +159,10 @@ namespace core {
         JobSystem                     job_system_;
         ServiceRegistry               services_;
         FrameDataBus                  frame_data_;
+
+        // Единый долгоживущий контекст: плагины получают указатель на него в on_load и могут хранить
+        // его до on_unload. Поля обновляются при каждом изменении набора служб (refreshContext).
+        EngineContext                 context_{};
 
         std::atomic<bool>             is_running_{ false };
         EngineConfig                  config_;
@@ -214,6 +237,10 @@ namespace core {
             services_.register_system(sys_id::Log, &null_log_api_);
 
             // Подписка на системные сигналы завершения
+            // Контекст следит за реестром служб: поздно зарегистрированный рендер/звук виден плагинам сразу
+            services_.set_change_callback([this]() { refreshContext(); });
+            refreshContext();
+
             event_bus_.subscribe(event_id::EngineExit, [this](uint64_t) { stop(); });
             event_bus_.subscribe(event_id::AppQuit, [this](uint64_t) { stop(); });
         }
@@ -260,10 +287,9 @@ namespace core {
                 }
             );
 
-            EngineContext ctx = createEngineContext();
             if (plugin->on_load) {
                 try {
-                    plugin->on_load(&ctx);
+                    plugin->on_load(&context_);
                 }
                 catch (const std::exception& e) {
                     std::cerr << "[Core Error] Исключение в on_load плагина '"
@@ -374,6 +400,7 @@ namespace core {
         JobSystem& jobSystem() { return job_system_; }
         ServiceRegistry& services() { return services_; }
         FrameDataBus& frameData() { return frame_data_; }
+        const EngineContext& context() const { return context_; }
         const FrameStats& stats() const { return stats_; }
         const EngineConfig& config() const { return config_; }
 
@@ -419,8 +446,8 @@ namespace core {
             }
         }
 
-        EngineContext createEngineContext() {
-            EngineContext ctx;
+        void refreshContext() {
+            EngineContext& ctx = context_;
             ctx.ecs = &ecs_;
             ctx.event_bus = &event_bus_;
             ctx.job_system = &job_system_;
@@ -436,8 +463,6 @@ namespace core {
 
             ctx.get_frame_data = &Application::BridgeGetFrameData;
             ctx.set_frame_data = &Application::BridgeSetFrameData;
-
-            return ctx;
         }
     };
 

@@ -10,6 +10,11 @@
 *   **Plugin ABI** (`PluginContract.h`, `PluginLoader.h`): `core::PluginInterface`, `GetPluginAPI()` / `DECLARE_ENGINE_PLUGIN`, ABI handshake `0x00040000`, recursive discovery and priority ordering.
 *   **Self-test and CI mode:** unit tests run at startup; `3DAndEngine --ci` runs them plus 30 headless frames.
 
+### Fixes after v0.4.0
+*   **Crash on exit with several plugins** fixed: plugin libraries are now unloaded after `Application` destroys its ECS pools (`src/main.cpp`).
+*   **`EngineContext` is now long-lived.** `on_load` receives a pointer to one object owned by `Application` (previously a temporary copy that dangled after `on_load` returned). Its fields follow `ServiceRegistry` changes, so services registered later are visible to already loaded plugins. The struct layout is unchanged, ABI stays `0x00040000`: existing plugins keep working without a rebuild.
+*   Removed duplicate and dead code (`LibraryLoader.h`, unused platform helpers, "fast slots" in `ServiceRegistry`, copy-pasted plugin dispatch loops); swallowed exceptions in `EventBus`, `JobSystem` and ECS listeners are now logged.
+
 ### Repository maintenance
 *   Removed build output (`3DAndEngine/x64/Debug`) and the vendored `vcpkg_installed/` directory from version control.
 *   Removed the unused duplicate `include/core/EngineContext.h` (the active definition lives in `PluginContract.h`), the unused `cmake/Config.cmake.in` and the misplaced `.github/workflows/config.json`.

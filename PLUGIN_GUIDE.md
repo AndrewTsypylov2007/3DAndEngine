@@ -27,8 +27,8 @@ extern "C" core::PluginInterface* GetPluginAPI();
 | `on_render(float alpha)` | Отрисовка; `alpha` — коэффициент интерполяции между физическими шагами. Может быть `nullptr`. |
 | `on_unload()` | Вызывается при завершении работы. Может быть `nullptr`. |
 
-> **Важно про `EngineContext`.** Указатель, который приходит в `on_load`, указывает на временный объект и становится недействительным после возврата из функции.
-> Не сохраняйте сам указатель — сохраните **копию** структуры (`g_ctx = *ctx;`). Она состоит из указателей на подсистемы и безопасна для копирования.
+> **Про `EngineContext`.** Указатель, который приходит в `on_load`, указывает на единый объект внутри `Application`: он действителен до `on_unload`, и его можно хранить. Поля контекста (`renderer`, `audio`, `input` и т.д.) обновляются при каждой регистрации службы, поэтому служба, зарегистрированная другим плагином уже после загрузки вашего, становится видна через тот же указатель. Меняются поля только в главном потоке, так что читайте их оттуда же (или копируйте нужный указатель в начале кадра).
+> Старые сборки движка (до исправления «живого контекста») передавали временный объект: если плагин должен работать и с ними, храните копию структуры (`g_ctx = *ctx;`).
 
 Через `EngineContext` доступны: `ecs` (`EcsRegistry`), `event_bus`, `job_system`, а также таблицы функций
 `input`, `audio`, `renderer`, `assets`, `logger` (они могут быть `nullptr`, если соответствующий сервис не зарегистрирован),
@@ -52,13 +52,12 @@ namespace {
 struct Position { float x = 0.0f; float y = 0.0f; };
 struct Velocity { float vx = 0.0f; float vy = 0.0f; };
 
-// ВАЖНО: ядро передает в on_load указатель на временный объект, который живет только
-// на время вызова. Храните КОПИЮ структуры (она состоит из указателей и безопасна для копирования).
-core::EngineContext g_ctx{};
+// Контекст живет столько же, сколько Application: указатель можно хранить до on_unload.
+core::EngineContext* g_ctx = nullptr;
 core::Entity g_player{};
 
 void on_load(core::EngineContext* ctx) {
-    g_ctx = *ctx;
+    g_ctx = ctx;
     g_player = ctx->ecs->createEntity();
     ctx->ecs->addComponent<Position>(g_player, Position{});
     ctx->ecs->addComponent<Velocity>(g_player, Velocity{ 10.0f, 0.0f });
@@ -67,11 +66,11 @@ void on_load(core::EngineContext* ctx) {
 
 // Детерминированная логика: вызывается с фиксированным шагом (по умолчанию 1/60 с)
 void on_fixed_update(float fixed_dt) {
-    auto* velocities = g_ctx.ecs->view<Velocity>();
+    auto* velocities = g_ctx->ecs->view<Velocity>();
     if (!velocities) return;
 
     velocities->each([&](core::Entity entity, Velocity& vel) {
-        if (auto* pos = g_ctx.ecs->getComponent<Position>(entity)) {
+        if (auto* pos = g_ctx->ecs->getComponent<Position>(entity)) {
             pos->x += vel.vx * fixed_dt;
             pos->y += vel.vy * fixed_dt;
         }
@@ -84,10 +83,10 @@ void on_update(float /*delta_time*/) {}
 void on_render(float /*alpha*/) {}
 
 void on_unload() {
-    if (auto* pos = g_ctx.ecs->getComponent<Position>(g_player)) {
+    if (auto* pos = g_ctx->ecs->getComponent<Position>(g_player)) {
         std::printf("[MyPlugin] Unloading, player x = %.2f\n", pos->x);
     }
-    g_ctx = core::EngineContext{};
+    g_ctx = nullptr;
 }
 
 core::PluginInterface g_plugin = {
@@ -156,7 +155,7 @@ target_include_directories(my_plugin PRIVATE path/to/3DAndEngine/include)
 *   **Обрабатывайте ошибки внутри плагина.** Ядро оборачивает вызовы колбэков в `try/catch` и пишет ошибку в лог, но не стоит полагаться на это как на штатный механизм.
 *   **Общее состояние держите в `EngineContext`** (ECS, шина событий, `registerSystem` / `setFrameData`), а не в глобальных переменных, на которые рассчитывают другие плагины: модули не должны знать друг о друге.
 *   **Порядок вызова** определяется `priority` (меньше — раньше). Порядок плагинов с одинаковым приоритетом не гарантируется.
-*   **Остановка движка.** Событие с идентификатором `"engine/exit"` или `"app/quit"` останавливает главный цикл: `g_ctx.event_bus->dispatchImmediate(core::hash_str("app/quit"));`
+*   **Остановка движка.** Событие с идентификатором `"engine/exit"` или `"app/quit"` останавливает главный цикл: `g_ctx->event_bus->dispatchImmediate(core::event_id::AppQuit);`
 
 ---
 *Версия ABI меняется при несовместимых изменениях `PluginContract.h`; плагины со старым ABI нужно пересобирать.*

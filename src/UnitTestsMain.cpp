@@ -2,6 +2,7 @@
 #include "../include/core/EcsRegistry.h"
 #include "../include/core/EventBus.h"
 #include "../include/core/JobSystem.h"
+#include "../include/core/Application.h"
 
 #include <iostream>
 #include <vector>
@@ -106,6 +107,43 @@ void test_job_system() {
     std::cout << "[Test Passed] Multithreaded Lock-Free Job System works.\n";
 }
 
+// Контекст, выданный плагину в on_load, должен быть долгоживущим и видеть службы,
+// зарегистрированные уже ПОСЛЕ загрузки плагина.
+static core::EngineContext* g_seen_context = nullptr;
+
+void test_live_engine_context() {
+    core::Application app;
+
+    core::PluginInterface plugin{
+        "ContextProbe", "1.0.0", core::ENGINE_ABI_VERSION, 0,
+        [](core::EngineContext* ctx) { g_seen_context = ctx; },
+        nullptr,
+        [](float) {},
+        nullptr,
+        nullptr
+    };
+    app.registerPlugin(&plugin);
+
+    CORE_CHECK(g_seen_context != nullptr);
+    CORE_CHECK(g_seen_context == &app.context());      // тот же объект, а не временная копия
+    CORE_CHECK(g_seen_context->ecs == &app.ecs());
+    CORE_CHECK(g_seen_context->renderer != nullptr);   // null-реализация по умолчанию
+
+    core::RenderAPI custom_renderer{
+        [](uint32_t, const void*, size_t) {},
+        [](uint32_t* w, uint32_t* h) { if (w) *w = 1; if (h) *h = 1; },
+        [](bool) {}
+    };
+    app.services().register_system(core::sys_id::Renderer, &custom_renderer);
+    CORE_CHECK(g_seen_context->renderer == &custom_renderer);  // виден через старый указатель
+
+    app.services().unregister_system(core::sys_id::Renderer);
+    CORE_CHECK(g_seen_context->renderer == nullptr);
+
+    g_seen_context = nullptr;
+    std::cout << "[Test Passed] Live EngineContext (stable pointer, late services) works.\n";
+}
+
 void run_all_core_tests() {
     std::cout << "\n=== Starting 3DAndEngine Core Unit Tests v0.4.0 ===\n";
 
@@ -114,6 +152,7 @@ void run_all_core_tests() {
         test_reactive_ecs();
         test_hybrid_eventbus();
         test_job_system();
+        test_live_engine_context();
 
         std::cout << "=== ALL CORE TESTS PASSED SUCCESSFULLY ===\n\n";
     }
