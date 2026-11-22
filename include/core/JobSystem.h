@@ -8,7 +8,9 @@
 #include <mutex>
 #include <cstdint>
 #include <algorithm>
-#include <cassert>
+#include <chrono>
+#include <iostream>
+#include <stdexcept>
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -49,6 +51,14 @@ namespace core {
             T                   data;
         };
 
+        // Размер очереди обязан быть степенью двойки (проверка работает и в Release, в отличие от assert)
+        static size_t checked_size(size_t n) {
+            if (n < 2 || (n & (n - 1)) != 0) {
+                throw std::invalid_argument("MpmcBoundedQueue: buffer_size must be a power of two >= 2");
+            }
+            return n;
+        }
+
         Cell* const          buffer_;
         size_t const         buffer_mask_;
         alignas(64) std::atomic<size_t> enqueue_pos_{ 0 };
@@ -56,9 +66,8 @@ namespace core {
 
     public:
         explicit MpmcBoundedQueue(size_t buffer_size = 4096)
-            : buffer_(new Cell[buffer_size])
+            : buffer_(new Cell[checked_size(buffer_size)])
             , buffer_mask_(buffer_size - 1) {
-            assert((buffer_size >= 2) && ((buffer_size & (buffer_size - 1)) == 0));
             for (size_t i = 0; i < buffer_size; ++i) {
                 buffer_[i].sequence.store(i, std::memory_order_relaxed);
             }
@@ -242,7 +251,12 @@ namespace core {
                 try {
                     job.task();
                 }
-                catch (...) {}
+                catch (const std::exception& e) {
+                    std::cerr << "[JobSystem] Необработанное исключение в задаче: " << e.what() << "\n";
+                }
+                catch (...) {
+                    std::cerr << "[JobSystem] Неизвестное исключение в задаче\n";
+                }
             }
             if (job.counter) {
                 job.counter->value.fetch_sub(1, std::memory_order_release);

@@ -163,31 +163,4 @@ namespace core::platform {
         }
     };
 
-    inline LibHandle load_library(const std::string& path) {
-        std::filesystem::path fixed = fix_lib_path(path);
-#if defined(_WIN32)
-        return static_cast<LibHandle>(::LoadLibraryW(fixed.wstring().c_str()));
-#else
-        return ::dlopen(fixed.c_str(), RTLD_NOW | RTLD_GLOBAL);
-#endif
-    }
-
-    inline void* get_symbol(LibHandle handle, const std::string& symbol_name) {
-        if (!handle) return nullptr;
-#if defined(_WIN32)
-        return reinterpret_cast<void*>(::GetProcAddress(static_cast<HMODULE>(handle), symbol_name.c_str()));
-#else
-        return ::dlsym(handle, symbol_name.c_str());
-#endif
-    }
-
-    inline void free_library(LibHandle handle) {
-        if (!handle) return;
-#if defined(_WIN32)
-        ::FreeLibrary(static_cast<HMODULE>(handle));
-#else
-        ::dlclose(handle);
-#endif
-    }
-
 } // namespace core::platform

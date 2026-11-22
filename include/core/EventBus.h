@@ -6,12 +6,9 @@
 #include <mutex>
 #include <cstdint>
 #include <atomic>
+#include <exception>
+#include <iostream>
 #include "Types.h"
-
-#if defined(_MSC_VER)
-#pragma warning(push)
-#pragma warning(disable: 4324) // Подавление информационного варнинга C4324 о padding для alignas(64)
-#endif
 
 namespace core {
 
@@ -65,8 +62,12 @@ namespace core {
                     try {
                         cb(payload);
                     }
-                    catch (...) {
+                    catch (const std::exception& e) {
                         // Защита главного потока от исключений внутри пользовательских плагинов
+                        std::cerr << "[EventBus] Исключение в обработчике события: " << e.what() << "\n";
+                    }
+                    catch (...) {
+                        std::cerr << "[EventBus] Неизвестное исключение в обработчике события\n";
                     }
                 }
             }
@@ -120,7 +121,3 @@ namespace core {
     };
 
 } // namespace core
-
-#if defined(_MSC_VER)
-#pragma warning(pop)
-#endif
