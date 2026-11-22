@@ -2,14 +2,20 @@
 #include "../include/core/EcsRegistry.h"
 #include "../include/core/EventBus.h"
 #include "../include/core/JobSystem.h"
+#include "../include/core/Application.h"
 
 #include <iostream>
 #include <vector>
-#include <cassert>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <cstdint>
 #include <atomic>
+
+// assert() отключается в Release (-DNDEBUG), поэтому тесты используют собственную проверку,
+// которая работает во всех конфигурациях и бросает исключение при провале.
+#define CORE_CHECK(cond) \
+    do { if (!(cond)) throw std::runtime_error("CORE_CHECK failed: " #cond " (" __FILE__ ":" + std::to_string(__LINE__) + ")"); } while (0)
 
 struct TestTransform {
     float x{ 0.0f };
@@ -27,8 +33,8 @@ void test_commercial_hashing() {
     constexpr uint64_t hash1 = core::hash_str("renderer/main_pass");
     constexpr uint64_t hash2 = "renderer/main_pass"_id;
 
-    assert(hash1 == hash2);
-    assert(hash1 > 0xFFFFFFFFull);
+    CORE_CHECK(hash1 == hash2);
+    CORE_CHECK(hash1 > 0xFFFFFFFFull);
 
     std::cout << "[Test Passed] 64-bit FNV-1a Hashing works.\n";
 }
@@ -50,12 +56,12 @@ void test_reactive_ecs() {
     Entity e1 = registry.createEntity();
     registry.addComponent<TestTransform>(e1, TestTransform{ 100.0f, 200.0f });
 
-    assert(component_added == true);
+    CORE_CHECK(component_added == true);
 
     TestTransform* t = registry.getComponent<TestTransform>(e1);
-    assert(t != nullptr);
-    assert(t->x == 100.0f);
-    assert(t->y == 200.0f);
+    CORE_CHECK(t != nullptr);
+    CORE_CHECK(t->x == 100.0f);
+    CORE_CHECK(t->y == 200.0f);
 
     std::cout << "[Test Passed] Reactive Paged Sparse-Set ECS & Listeners work.\n";
 }
@@ -73,8 +79,8 @@ void test_hybrid_eventbus() {
 
     event_bus.dispatchImmediate("engine/exit"_id, 1);
 
-    assert(immediate_reacted == true);
-    assert(event_bus.eventCount() == 1);
+    CORE_CHECK(immediate_reacted == true);
+    CORE_CHECK(event_bus.eventCount() == 1);
 
     std::cout << "[Test Passed] Hybrid EventBus (Immediate/Buffered) works.\n";
 }
@@ -95,10 +101,47 @@ void test_job_system() {
     }
 
     job_system.wait(&jc);
-    assert(counter.load() == 100);
+    CORE_CHECK(counter.load() == 100);
 
     job_system.shutdown();
     std::cout << "[Test Passed] Multithreaded Lock-Free Job System works.\n";
+}
+
+// Контекст, выданный плагину в on_load, должен быть долгоживущим и видеть службы,
+// зарегистрированные уже ПОСЛЕ загрузки плагина.
+static core::EngineContext* g_seen_context = nullptr;
+
+void test_live_engine_context() {
+    core::Application app;
+
+    core::PluginInterface plugin{
+        "ContextProbe", "1.0.0", core::ENGINE_ABI_VERSION, 0,
+        [](core::EngineContext* ctx) { g_seen_context = ctx; },
+        nullptr,
+        [](float) {},
+        nullptr,
+        nullptr
+    };
+    app.registerPlugin(&plugin);
+
+    CORE_CHECK(g_seen_context != nullptr);
+    CORE_CHECK(g_seen_context == &app.context());      // тот же объект, а не временная копия
+    CORE_CHECK(g_seen_context->ecs == &app.ecs());
+    CORE_CHECK(g_seen_context->renderer != nullptr);   // null-реализация по умолчанию
+
+    core::RenderAPI custom_renderer{
+        [](uint32_t, const void*, size_t) {},
+        [](uint32_t* w, uint32_t* h) { if (w) *w = 1; if (h) *h = 1; },
+        [](bool) {}
+    };
+    app.services().register_system(core::sys_id::Renderer, &custom_renderer);
+    CORE_CHECK(g_seen_context->renderer == &custom_renderer);  // виден через старый указатель
+
+    app.services().unregister_system(core::sys_id::Renderer);
+    CORE_CHECK(g_seen_context->renderer == nullptr);
+
+    g_seen_context = nullptr;
+    std::cout << "[Test Passed] Live EngineContext (stable pointer, late services) works.\n";
 }
 
 void run_all_core_tests() {
@@ -109,6 +152,7 @@ void run_all_core_tests() {
         test_reactive_ecs();
         test_hybrid_eventbus();
         test_job_system();
+        test_live_engine_context();
 
         std::cout << "=== ALL CORE TESTS PASSED SUCCESSFULLY ===\n\n";
     }

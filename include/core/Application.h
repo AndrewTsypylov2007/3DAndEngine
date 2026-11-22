@@ -12,6 +12,7 @@
 #endif
 
 #include <unordered_map>
+#include <functional>
 #include <vector>
 #include <algorithm>
 #include <chrono>
@@ -21,10 +22,8 @@
 #include <mutex>
 #include <memory>
 #include <cstdint>
-#include <iomanip>
 #include <string>
 #include <string_view>
-#include <sstream>
 
 #include "Types.h"
 #include "EcsRegistry.h"
@@ -40,43 +39,43 @@
 namespace core {
 
     // ==============================================================================
-    // 1. ДВУХУРОВНЕВЫЙ THREAD-SAFE SERVICE REGISTRY (O(1) Fast Slots + Dynamic Hash)
+    // 1. THREAD-SAFE SERVICE REGISTRY (SystemID -> указатель на службу)
     // ==============================================================================
     class ServiceRegistry {
     private:
-        static constexpr size_t FAST_SLOT_COUNT = 16;
-        void* fast_slots_[FAST_SLOT_COUNT] = { nullptr };
-
-        std::unordered_map<SystemID, void*> dynamic_services_;
+        std::unordered_map<SystemID, void*> services_;
         mutable std::shared_mutex           mutex_;
+        std::function<void()>               on_change_;
+
+        // Уведомление вызывается уже после освобождения блокировки, чтобы колбэк мог читать реестр.
+        void notify_changed() {
+            if (on_change_) on_change_();
+        }
 
     public:
         ServiceRegistry() = default;
-        ~ServiceRegistry() {
-            clear();
+        ~ServiceRegistry() = default;
+
+        // Колбэк вызывается при каждом изменении набора служб (регистрация, удаление, очистка).
+        void set_change_callback(std::function<void()> callback) {
+            on_change_ = std::move(callback);
         }
 
         ServiceRegistry(const ServiceRegistry&) = delete;
         ServiceRegistry& operator=(const ServiceRegistry&) = delete;
 
         void register_system(SystemID id, void* ptr) {
-            std::unique_lock lock(mutex_);
-            if (id > 0 && id < FAST_SLOT_COUNT) {
-                fast_slots_[id] = ptr;
+            {
+                std::unique_lock lock(mutex_);
+                services_[id] = ptr;
             }
-            else {
-                dynamic_services_[id] = ptr;
-            }
+            notify_changed();
         }
 
         void* get_system(SystemID id) const {
-            if (id > 0 && id < FAST_SLOT_COUNT) {
-                return fast_slots_[id];
-            }
-
             std::shared_lock lock(mutex_);
-            auto it = dynamic_services_.find(id);
-            return (it != dynamic_services_.end()) ? it->second : nullptr;
+            auto it = services_.find(id);
+            return (it != services_.end()) ? it->second : nullptr;
         }
 
         bool has_system(SystemID id) const {
@@ -84,21 +83,19 @@ namespace core {
         }
 
         void unregister_system(SystemID id) {
-            std::unique_lock lock(mutex_);
-            if (id > 0 && id < FAST_SLOT_COUNT) {
-                fast_slots_[id] = nullptr;
+            {
+                std::unique_lock lock(mutex_);
+                services_.erase(id);
             }
-            else {
-                dynamic_services_.erase(id);
-            }
+            notify_changed();
         }
 
         void clear() {
-            std::unique_lock lock(mutex_);
-            for (size_t i = 0; i < FAST_SLOT_COUNT; ++i) {
-                fast_slots_[i] = nullptr;
+            {
+                std::unique_lock lock(mutex_);
+                services_.clear();
             }
-            dynamic_services_.clear();
+            notify_changed();
         }
     };
 
@@ -162,6 +159,10 @@ namespace core {
         JobSystem                     job_system_;
         ServiceRegistry               services_;
         FrameDataBus                  frame_data_;
+
+        // Единый долгоживущий контекст: плагины получают указатель на него в on_load и могут хранить
+        // его до on_unload. Поля обновляются при каждом изменении набора служб (refreshContext).
+        EngineContext                 context_{};
 
         std::atomic<bool>             is_running_{ false };
         EngineConfig                  config_;
@@ -236,8 +237,12 @@ namespace core {
             services_.register_system(sys_id::Log, &null_log_api_);
 
             // Подписка на системные сигналы завершения
-            event_bus_.subscribe("engine/exit"_id, [this](uint64_t) { stop(); });
-            event_bus_.subscribe("app/quit"_id, [this](uint64_t) { stop(); });
+            // Контекст следит за реестром служб: поздно зарегистрированный рендер/звук виден плагинам сразу
+            services_.set_change_callback([this]() { refreshContext(); });
+            refreshContext();
+
+            event_bus_.subscribe(event_id::EngineExit, [this](uint64_t) { stop(); });
+            event_bus_.subscribe(event_id::AppQuit, [this](uint64_t) { stop(); });
         }
 
         ~Application() {
@@ -249,20 +254,8 @@ namespace core {
             stop();
             job_system_.shutdown();
 
-            // 2. Безопасная выгрузка плагинов по локальной копии списка
-            auto plugins_to_unload = plugins_;
-            plugins_.clear();
-
-            for (auto it = plugins_to_unload.rbegin(); it != plugins_to_unload.rend(); ++it) {
-                if (*it && (*it)->on_unload) {
-                    try {
-                        (*it)->on_unload();
-                    }
-                    catch (...) {
-                        // Защита от сбоя деструктора плагина
-                    }
-                }
-            }
+            // 2. Безопасная выгрузка плагинов
+            unloadPlugins();
 
             event_bus_.unsubscribeAll();
             services_.clear();
@@ -288,16 +281,15 @@ namespace core {
             plugins_.push_back(plugin);
 
             // Сортировка по приоритету выполнения (меньшее число = раньше запуск)
-            std::sort(plugins_.begin(), plugins_.end(),
+            std::stable_sort(plugins_.begin(), plugins_.end(),
                 [](const PluginInterface* a, const PluginInterface* b) {
                     return a->priority < b->priority;
                 }
             );
 
-            EngineContext ctx = createEngineContext();
             if (plugin->on_load) {
                 try {
-                    plugin->on_load(&ctx);
+                    plugin->on_load(&context_);
                 }
                 catch (const std::exception& e) {
                     std::cerr << "[Core Error] Исключение в on_load плагина '"
@@ -316,7 +308,7 @@ namespace core {
             job_system_.initialize(config_.worker_threads);
             is_running_.store(true, std::memory_order_release);
 
-            using Clock = std::chrono::high_resolution_clock;
+            using Clock = std::chrono::steady_clock;
             auto last_time = Clock::now();
             double accumulator = 0.0;
 
@@ -336,55 +328,20 @@ namespace core {
 
                 // --- 1. ФИКСИРОВАННЫЙ ШАГ ФИЗИКИ (Fixed Timestep 60 Hz) ---
                 auto physics_start = Clock::now();
+                const float fixed_dt = static_cast<float>(config_.fixed_timestep);
                 while (accumulator >= config_.fixed_timestep) {
-                    float fixed_dt = static_cast<float>(config_.fixed_timestep);
-                    size_t p_count = plugins_.size();
-                    for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
-                        auto* plugin = plugins_[i];
-                        if (plugin && plugin->on_fixed_update) {
-                            try {
-                                plugin->on_fixed_update(fixed_dt);
-                            }
-                            catch (const std::exception& e) {
-                                std::cerr << "[Core Loop] Ошибка в on_fixed_update: " << e.what() << "\n";
-                            }
-                            catch (...) {}
-                        }
-                    }
+                    callPlugins(&PluginInterface::on_fixed_update, "on_fixed_update", fixed_dt);
                     accumulator -= config_.fixed_timestep;
                 }
                 stats_.physics_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - physics_start).count();
 
                 // --- 2. ГЕЙМПЛЕЙНЫЙ ШАГ КАДРА (Variable Update) ---
-                size_t p_count = plugins_.size();
-                for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
-                    auto* plugin = plugins_[i];
-                    if (plugin && plugin->on_update) {
-                        try {
-                            plugin->on_update(frame_dt);
-                        }
-                        catch (const std::exception& e) {
-                            std::cerr << "[Core Loop] Ошибка в on_update: " << e.what() << "\n";
-                        }
-                        catch (...) {}
-                    }
-                }
+                callPlugins(&PluginInterface::on_update, "on_update", frame_dt);
 
                 // --- 3. ФАЗА ОТРИСОВКИ С ИНТЕРПОЛЯЦИЕЙ (Render Step) ---
                 auto render_start = Clock::now();
-                float alpha = static_cast<float>(accumulator / config_.fixed_timestep);
-                for (size_t i = 0; i < p_count && i < plugins_.size(); ++i) {
-                    auto* plugin = plugins_[i];
-                    if (plugin && plugin->on_render) {
-                        try {
-                            plugin->on_render(alpha);
-                        }
-                        catch (const std::exception& e) {
-                            std::cerr << "[Core Loop] Ошибка в on_render: " << e.what() << "\n";
-                        }
-                        catch (...) {}
-                    }
-                }
+                const float alpha = static_cast<float>(accumulator / config_.fixed_timestep);
+                callPlugins(&PluginInterface::on_render, "on_render", alpha);
                 stats_.render_time_ms = std::chrono::duration<float, std::milli>(Clock::now() - render_start).count();
 
                 // --- 4. ПОСТ-КАДРОВАЯ ОБРАБОТКА СОБЫТИЙ И ОЧИСТКА ---
@@ -420,20 +377,7 @@ namespace core {
             // =====================================================================
             // БЕЗОПАСНАЯ ВЫГРУЗКА И ДЕИНИЦИАЛИЗАЦИЯ
             // =====================================================================
-            auto plugins_to_unload = plugins_;
-            plugins_.clear();
-
-            for (auto it = plugins_to_unload.rbegin(); it != plugins_to_unload.rend(); ++it) {
-                if (*it && (*it)->on_unload) {
-                    try {
-                        (*it)->on_unload();
-                    }
-                    catch (const std::exception& e) {
-                        std::cerr << "[Core Error] Ошибка при выгрузке плагина: " << e.what() << "\n";
-                    }
-                    catch (...) {}
-                }
-            }
+            unloadPlugins();
 
             job_system_.shutdown();
             event_bus_.unsubscribeAll();
@@ -456,12 +400,54 @@ namespace core {
         JobSystem& jobSystem() { return job_system_; }
         ServiceRegistry& services() { return services_; }
         FrameDataBus& frameData() { return frame_data_; }
+        const EngineContext& context() const { return context_; }
         const FrameStats& stats() const { return stats_; }
         const EngineConfig& config() const { return config_; }
 
     private:
-        EngineContext createEngineContext() {
-            EngineContext ctx;
+        // Вызывает один и тот же колбэк у всех плагинов по порядку приоритета; исключения логируются.
+        template<typename... Args>
+        void callPlugins(void (*PluginInterface::*callback)(Args...), const char* phase, Args... args) {
+            for (size_t i = 0; i < plugins_.size(); ++i) {
+                PluginInterface* plugin = plugins_[i];
+                if (!plugin || !(plugin->*callback)) continue;
+                try {
+                    (plugin->*callback)(args...);
+                }
+                catch (const std::exception& e) {
+                    std::cerr << "[Core Loop] Ошибка в " << phase << " плагина '"
+                        << (plugin->name ? plugin->name : "?") << "': " << e.what() << "\n";
+                }
+                catch (...) {
+                    std::cerr << "[Core Loop] Неизвестное исключение в " << phase << " плагина '"
+                        << (plugin->name ? plugin->name : "?") << "'\n";
+                }
+            }
+        }
+
+        // Вызывает on_unload у всех плагинов в обратном порядке и очищает список.
+        void unloadPlugins() {
+            auto plugins_to_unload = plugins_;
+            plugins_.clear();
+
+            for (auto it = plugins_to_unload.rbegin(); it != plugins_to_unload.rend(); ++it) {
+                if (*it && (*it)->on_unload) {
+                    try {
+                        (*it)->on_unload();
+                    }
+                    catch (const std::exception& e) {
+                        std::cerr << "[Core Error] Ошибка при выгрузке плагина '"
+                            << ((*it)->name ? (*it)->name : "?") << "': " << e.what() << "\n";
+                    }
+                    catch (...) {
+                        std::cerr << "[Core Error] Неизвестное исключение при выгрузке плагина\n";
+                    }
+                }
+            }
+        }
+
+        void refreshContext() {
+            EngineContext& ctx = context_;
             ctx.ecs = &ecs_;
             ctx.event_bus = &event_bus_;
             ctx.job_system = &job_system_;
@@ -477,8 +463,6 @@ namespace core {
 
             ctx.get_frame_data = &Application::BridgeGetFrameData;
             ctx.set_frame_data = &Application::BridgeSetFrameData;
-
-            return ctx;
         }
     };
 

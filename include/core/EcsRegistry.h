@@ -12,6 +12,8 @@
 #include <typeinfo>
 #include <cstring>
 #include <algorithm>
+#include <exception>
+#include <iostream>
 
 #if defined(_MSC_VER)
 #pragma warning(push)
@@ -315,7 +317,9 @@ namespace core {
                     try {
                         listener.on_component_added(entity, tid);
                     }
-                    catch (...) {}
+                    catch (...) {
+                        std::cerr << "[ECS] Исключение в обработчике EcsListener\n";
+                    }
                 }
             }
             return *ptr;
@@ -366,7 +370,9 @@ namespace core {
                     try {
                         listener.on_component_removed(entity, tid);
                     }
-                    catch (...) {}
+                    catch (...) {
+                        std::cerr << "[ECS] Исключение в обработчике EcsListener\n";
+                    }
                 }
             }
         }

@@ -1,9 +1,5 @@
 {
   "name": "3d-and-engine-core",
-  "version-string": "0.1.0",
-  "dependencies": [
-    "fmt",
-    "spdlog",
-    "nlohmann-json"
-  ]
+  "version-string": "0.4.0",
+  "dependencies": []
 }

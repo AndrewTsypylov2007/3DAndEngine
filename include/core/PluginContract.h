@@ -12,8 +12,6 @@ namespace core {
 
     constexpr uint32_t ENGINE_ABI_VERSION = 0x00040000;
 
-    using FrameDataId = uint64_t;
-
     enum class LogLevel : uint32_t {
         Trace = 0,
         Info = 1,
